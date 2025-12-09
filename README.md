@@ -1,6 +1,6 @@
 # ESPHome Ni1000 Raumfühler-Simulation für Brötje HR MICRO G
 
-ESP32-basierte Smart-Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (QAA 36.2) für Brötje HR MICRO G / Siemens RVP 76.132 Heizungsregler simuliert.
+ESP32-basierte smarte Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (QAA 36.2) für Brötje HR MICRO G / Siemens RVP 76.132 Heizungsregler simuliert.
 
 ## ✨ Features
 
