@@ -280,12 +280,12 @@ sensor:
   # ============================================================
   - platform: homeassistant
     id: temp_wohnzimmer
-    entity_id: sensor.dein_wohnzimmer_temperatur  # Anpassen!
+    entity_id: sensor.pws_temperature_indoor
     internal: true
 
   - platform: homeassistant
-    id: temp_zweiter_raum
-    entity_id: sensor.dein_zweiter_raum_temperatur  # Anpassen!
+    id: temp_kinderzimmer
+    entity_id: sensor.heizung_kinderzimmer_air_temperature
     internal: true
 
   # ============================================================
@@ -310,8 +310,8 @@ sensor:
         sum += id(temp_wohnzimmer).state;
         count++;
       }
-      if (!isnan(id(temp_zweiter_raum).state)) {
-        sum += id(temp_zweiter_raum).state;
+      if (!isnan(id(temp_kinderzimmer).state)) {
+        sum += id(temp_kinderzimmer).state;
         count++;
       }
       
@@ -401,7 +401,7 @@ binary_sensor:
       }
       return false;
 
-  # Fußbodenheizung aktiv: Vorlauf > 25°C UND Spreizung > 1K
+  # Fußbodenheizung aktiv: Vorlauf > 25°C UND Spreizung > 0.5K
   - platform: template
     name: "Fußbodenheizung aktiv"
     id: fussboden_aktiv
@@ -409,7 +409,7 @@ binary_sensor:
     lambda: |-
       if (!isnan(id(temp_fussboden_vl).state) && !isnan(id(temp_fussboden_rl).state)) {
         float spreizung = id(temp_fussboden_vl).state - id(temp_fussboden_rl).state;
-        return (id(temp_fussboden_vl).state > 25.0) && (spreizung > 1.0);
+        return (id(temp_fussboden_vl).state > 25.0) && (spreizung > 0.5);
       }
       return false;
 
