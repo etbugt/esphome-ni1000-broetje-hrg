@@ -1,0 +1,602 @@
+# ============================================================
+# ESP32 Raumfühler-Simulation für Brötje HR MICRO G
+# Simuliert Ni1000 Raumfühler an Klemme B5/M
+# 
+# Hardware:
+# - MCP4162-502E/P (5kΩ Single Digital-Poti, Non-Volatile!)
+# - 180Ω Parallelwiderstand (reduziert Bereich auf ~0-170Ω)
+# - 1kΩ Vorwiderstand
+# - Gesamtbereich: 1000Ω - 1170Ω (entspricht -5°C bis 35°C)
+#
+# Vorteil MCP4162: Behält Widerstandswert bei Stromausfall!
+# Auflösung: ~0,4°C pro Wiper-Stufe im Bereich 10-30°C
+#
+# Inkl. 8x DS18B20 Temperatursensoren am 1-Wire Bus (GPIO0)
+# ============================================================
+
+esphome:
+  name: heizung-raumfuehler
+  friendly_name: "Heizung Raumfühler"
+  includes:
+    - mcp4162.h
+  on_boot:
+    priority: 200
+    then:
+      - lambda: |-
+          mcp4162.begin();
+          ESP_LOGI("main", "MCP4162 initialisiert");
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: "DEIN-WLAN"
+  password: "DEIN-PASSWORT"
+  
+  ap:
+    ssid: "Heizung-Fallback"
+    password: "heizung123"
+
+captive_portal:
+
+api:
+
+ota:
+  platform: esphome
+
+logger:
+  level: DEBUG
+
+# ============================================================
+# Dallas 1-Wire Bus für DS18B20 Sensoren
+# ============================================================
+one_wire:
+  - platform: gpio
+    pin: GPIO0
+    id: onewire_bus
+
+# ============================================================
+# Globale Variablen
+# ============================================================
+globals:
+  - id: temp_offset
+    type: float
+    restore_value: yes
+    initial_value: '0.0'
+  
+  - id: manual_mode
+    type: bool
+    restore_value: yes
+    initial_value: 'false'
+  
+  - id: manual_temp
+    type: float
+    restore_value: yes
+    initial_value: '21.0'
+    
+  - id: current_wiper
+    type: int
+    restore_value: no
+    initial_value: '15'
+
+# ============================================================
+# Konstanten für Berechnung
+# ============================================================
+# Ni1000 Kennlinie: R = 4.2 * T + 1021
+# Vorwiderstand: 1000Ω
+# Parallelwiderstand: 180Ω
+# MCP4162 Poti: 5kΩ / 257 Stufen = 19.53Ω pro Stufe
+# Non-Volatile: Wert bleibt bei Stromausfall erhalten!
+# ============================================================
+
+# ============================================================
+# MCP4162 Custom Output
+# ============================================================
+output:
+  - platform: template
+    id: digipot_output
+    type: float
+    write_action:
+      - lambda: |-
+          // state enthält die Temperatur in °C
+          float temp = state;
+          
+          // Ni1000 Widerstand berechnen: R = 4.2 * T + 1021
+          float r_ni1000 = 4.2 * temp + 1021.0;
+          
+          // Benötigter effektiver Poti-Widerstand (nach Vorwiderstand)
+          float r_eff = r_ni1000 - 1000.0;
+          
+          // Begrenzen auf sinnvollen Bereich
+          if (r_eff < 10.0) r_eff = 10.0;
+          if (r_eff > 165.0) r_eff = 165.0;  // Max bei 180Ω parallel
+          
+          // Parallelwiderstand-Formel umkehren:
+          // r_eff = (r_poti * 180) / (r_poti + 180)
+          // → r_poti = (r_eff * 180) / (180 - r_eff)
+          float r_parallel = 180.0;
+          float r_poti = (r_eff * r_parallel) / (r_parallel - r_eff);
+          
+          // Wiper-Position berechnen (5kΩ = 256 Stufen)
+          int wiper = (int)(r_poti / 5000.0 * 256.0 + 0.5);
+          
+          // Begrenzen
+          if (wiper < 0) wiper = 0;
+          if (wiper > 256) wiper = 256;
+          
+          // Speichern für Diagnose
+          id(current_wiper) = wiper;
+          
+          // MCP4162 setzen
+          mcp4162.setWiper(wiper);
+          
+          ESP_LOGD("mcp4162", "Temp=%.1f°C → R_Ni1000=%.0fΩ → R_eff=%.0fΩ → R_poti=%.0fΩ → Wiper=%d", 
+                   temp, r_ni1000, r_eff, r_poti, wiper);
+
+# ============================================================
+# Sensoren
+# ============================================================
+sensor:
+  # ============================================================
+  # DS18B20 Temperatursensoren (1-Wire Bus an GPIO0)
+  # ============================================================
+  # ----- Fußbodenheizung -----
+  - platform: dallas_temp
+    one_wire_id: onewire_bus
+    address: 0x0000000000000000 # Anpassen!
+    name: "Heizung Fußboden Rücklauf"
+    id: temp_fussboden_rl
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - filter_out: nan
+  - platform: dallas_temp
+    one_wire_id: onewire_bus
+    address: 0x0000000000000000 # Anpassen!
+    name: "Heizung Fußboden Vorlauf"
+    id: temp_fussboden_vl
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - filter_out: nan
+  # ----- Kamin -----
+  - platform: dallas_temp
+    one_wire_id: onewire_bus
+    address: 0x0000000000000000 # Anpassen!
+    name: "Heizung Kamin Rücklauf"
+    id: temp_kamin_rl
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - filter_out: nan
+  - platform: dallas_temp
+    one_wire_id: onewire_bus
+    address: 0x0000000000000000 # Anpassen!
+    name: "Heizung Kamin Vorlauf"
+    id: temp_kamin_vl
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - filter_out: nan
+  # ----- Radiatoren -----
+  - platform: dallas_temp
+    one_wire_id: onewire_bus
+    address: 0x0000000000000000 # Anpassen!
+    name: "Heizung Radiator Rücklauf"
+    id: temp_radiator_rl
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - filter_out: nan
+  - platform: dallas_temp
+    one_wire_id: onewire_bus
+    address: 0x0000000000000000 # Anpassen!
+    name: "Heizung Radiator Vorlauf"
+    id: temp_radiator_vl
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - filter_out: nan
+  # ----- Wasserspeicher -----
+  - platform: dallas_temp
+    one_wire_id: onewire_bus
+    address: 0x0000000000000000 # Anpassen!
+    name: "Heizung Wasserspeicher Rücklauf"
+    id: temp_speicher_rl
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - filter_out: nan
+  - platform: dallas_temp
+    one_wire_id: onewire_bus
+    address: 0x0000000000000000 # Anpassen!
+    name: "Heizung Wasserspeicher Vorlauf"
+    id: temp_speicher_vl
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - filter_out: nan
+
+  # ============================================================
+  # Berechnete Temperaturdifferenzen (Spreizung)
+  # ============================================================
+  - platform: template
+    name: "Spreizung Fußboden"
+    id: spreizung_fussboden
+    unit_of_measurement: "K"
+    accuracy_decimals: 1
+    icon: "mdi:thermometer-lines"
+    lambda: |-
+      if (!isnan(id(temp_fussboden_vl).state) && !isnan(id(temp_fussboden_rl).state)) {
+        return id(temp_fussboden_vl).state - id(temp_fussboden_rl).state;
+      }
+      return NAN;
+    update_interval: 60s
+
+  - platform: template
+    name: "Spreizung Radiator"
+    id: spreizung_radiator
+    unit_of_measurement: "K"
+    accuracy_decimals: 1
+    icon: "mdi:thermometer-lines"
+    lambda: |-
+      if (!isnan(id(temp_radiator_vl).state) && !isnan(id(temp_radiator_rl).state)) {
+        return id(temp_radiator_vl).state - id(temp_radiator_rl).state;
+      }
+      return NAN;
+    update_interval: 60s
+
+  - platform: template
+    name: "Spreizung Kamin"
+    id: spreizung_kamin
+    unit_of_measurement: "K"
+    accuracy_decimals: 1
+    icon: "mdi:thermometer-lines"
+    lambda: |-
+      // Kamin: Rücklauf ist der heiße Ausgang, Vorlauf der kalte Eingang
+      if (!isnan(id(temp_kamin_rl).state) && !isnan(id(temp_kamin_vl).state)) {
+        return id(temp_kamin_rl).state - id(temp_kamin_vl).state;
+      }
+      return NAN;
+    update_interval: 60s
+
+  - platform: template
+    name: "Spreizung Wasserspeicher"
+    id: spreizung_speicher
+    unit_of_measurement: "K"
+    accuracy_decimals: 1
+    icon: "mdi:thermometer-lines"
+    lambda: |-
+      if (!isnan(id(temp_speicher_vl).state) && !isnan(id(temp_speicher_rl).state)) {
+        return id(temp_speicher_vl).state - id(temp_speicher_rl).state;
+      }
+      return NAN;
+    update_interval: 60s
+
+  # ============================================================
+  # Raumtemperatur-Sensoren von Home Assistant
+  # ============================================================
+  - platform: homeassistant
+    id: temp_wohnzimmer
+    entity_id: sensor.dein_wohnzimmer_temperatur  # Anpassen!
+    internal: true
+
+  - platform: homeassistant
+    id: temp_zweiter_raum
+    entity_id: sensor.dein_zweiter_raum_temperatur  # Anpassen!
+    internal: true
+
+  # ============================================================
+  # Virtuelle Raumtemperatur (Hauptlogik)
+  # ============================================================
+  - platform: template
+    name: "Virtuelle Raumtemperatur"
+    id: virtual_room_temp
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    device_class: temperature
+    update_interval: 60s
+    lambda: |-
+      if (id(manual_mode)) {
+        return id(manual_temp);
+      }
+      
+      float sum = 0;
+      int count = 0;
+      
+      if (!isnan(id(temp_wohnzimmer).state)) {
+        sum += id(temp_wohnzimmer).state;
+        count++;
+      }
+      if (!isnan(id(temp_zweiter_raum).state)) {
+        sum += id(temp_zweiter_raum).state;
+        count++;
+      }
+      
+      if (count > 0) {
+        return sum / count;
+      }
+      return 20.0;
+    on_value:
+      then:
+        - lambda: |-
+            // Temperatur mit Offset an Output übergeben
+            float temp = x + id(temp_offset);
+            
+            // Begrenzen auf sinnvollen Bereich
+            if (temp < -5.0) temp = -5.0;
+            if (temp > 35.0) temp = 35.0;
+            
+            // Output setzen (Temperatur direkt übergeben)
+            id(digipot_output).set_level(temp);
+            
+            ESP_LOGD("heizung", "Virtuelle Temp: %.1f°C (mit Offset: %.1f°C)", x, temp);
+
+  # ============================================================
+  # Diagnose-Sensoren
+  # ============================================================
+  - platform: template
+    name: "Simulierter Ni1000 Widerstand"
+    id: simulated_resistance
+    unit_of_measurement: "Ω"
+    accuracy_decimals: 0
+    icon: "mdi:resistor"
+    update_interval: 60s
+    lambda: |-
+      float temp = id(virtual_room_temp).state + id(temp_offset);
+      // Ni1000 Formel: R = 4.2 * T + 1021
+      return 4.2 * temp + 1021.0;
+
+  - platform: template
+    name: "Poti Widerstand (effektiv)"
+    id: poti_resistance_eff
+    unit_of_measurement: "Ω"
+    accuracy_decimals: 0
+    icon: "mdi:tune-vertical"
+    update_interval: 60s
+    lambda: |-
+      float temp = id(virtual_room_temp).state + id(temp_offset);
+      float r_ni1000 = 4.2 * temp + 1021.0;
+      float r_eff = r_ni1000 - 1000.0;
+      if (r_eff < 10) r_eff = 10;
+      if (r_eff > 165) r_eff = 165;
+      return r_eff;
+
+  - platform: template
+    name: "Wiper Position"
+    id: wiper_position
+    icon: "mdi:tune"
+    accuracy_decimals: 0
+    update_interval: 10s
+    lambda: |-
+      return id(current_wiper);
+
+  - platform: wifi_signal
+    name: "WLAN Signal"
+    update_interval: 60s
+
+  - platform: uptime
+    name: "Laufzeit"
+    unit_of_measurement: "h"
+    filters:
+      - lambda: return x / 3600.0;
+
+# ============================================================
+# Binäre Sensoren (Statuserkennung)
+# ============================================================
+binary_sensor:
+  # Kamin aktiv: Rücklauf > 30°C UND Spreizung > 3K
+  # (Wärmetauscher: heißes Wasser kommt am "Rücklauf" raus,
+  #  kaltes geht durch "Vorlauf" zum Kamin zurück)
+  - platform: template
+    name: "Kamin aktiv"
+    id: kamin_aktiv
+    icon: "mdi:fireplace"
+    lambda: |-
+      if (!isnan(id(temp_kamin_vl).state) && !isnan(id(temp_kamin_rl).state)) {
+        float spreizung = id(temp_kamin_rl).state - id(temp_kamin_vl).state;
+        return (id(temp_kamin_rl).state > 30.0) && (spreizung > 3.0);
+      }
+      return false;
+
+  # Fußbodenheizung aktiv: Vorlauf > 25°C UND Spreizung > 1K
+  - platform: template
+    name: "Fußbodenheizung aktiv"
+    id: fussboden_aktiv
+    icon: "mdi:heating-coil"
+    lambda: |-
+      if (!isnan(id(temp_fussboden_vl).state) && !isnan(id(temp_fussboden_rl).state)) {
+        float spreizung = id(temp_fussboden_vl).state - id(temp_fussboden_rl).state;
+        return (id(temp_fussboden_vl).state > 25.0) && (spreizung > 1.0);
+      }
+      return false;
+
+  # Radiatoren aktiv: Vorlauf > 27°C
+  - platform: template
+    name: "Radiator aktiv"
+    id: radiator_aktiv
+    icon: "mdi:radiator"
+    lambda: |-
+      if (!isnan(id(temp_radiator_vl).state)) {
+        return id(temp_radiator_vl).state > 27.0;
+      }
+      return false;
+
+  # Heizung aktiv: Fußboden ODER Radiator läuft
+  - platform: template
+    name: "Heizung aktiv"
+    id: heizung_aktiv
+    icon: "mdi:home-thermometer"
+    lambda: |-
+      return id(fussboden_aktiv).state || id(radiator_aktiv).state;
+
+  # Warmwasser Bereitung: Rücklauf > 40°C UND Spreizung < 6K
+  - platform: template
+    name: "Warmwasser Bereitung"
+    id: warmwasser_aktiv
+    icon: "mdi:water-boiler"
+    lambda: |-
+      if (!isnan(id(temp_speicher_vl).state) && !isnan(id(temp_speicher_rl).state)) {
+        float spreizung = id(temp_speicher_vl).state - id(temp_speicher_rl).state;
+        return (id(temp_speicher_rl).state > 40.0) && (spreizung < 6.0);
+      }
+      return false;
+
+# ============================================================
+# Steuerungselemente
+# ============================================================
+number:
+  - platform: template
+    name: "Temperatur Offset"
+    id: temp_offset_input
+    min_value: -6
+    max_value: 6
+    step: 0.5
+    unit_of_measurement: "K"
+    icon: "mdi:thermometer-plus"
+    restore_value: true
+    optimistic: true
+    set_action:
+      - globals.set:
+          id: temp_offset
+          value: !lambda 'return x;'
+      - component.update: virtual_room_temp
+
+  - platform: template
+    name: "Manuelle Temperatur"
+    id: manual_temp_input
+    min_value: 5
+    max_value: 35
+    step: 0.5
+    unit_of_measurement: "°C"
+    icon: "mdi:thermometer"
+    restore_value: true
+    optimistic: true
+    set_action:
+      - globals.set:
+          id: manual_temp
+          value: !lambda 'return x;'
+      - if:
+          condition:
+            lambda: 'return id(manual_mode);'
+          then:
+            - component.update: virtual_room_temp
+
+# ============================================================
+# Schalter
+# ============================================================
+switch:
+  - platform: template
+    name: "Schnellaufheizen"
+    id: boost_mode
+    icon: "mdi:fire"
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - number.set:
+          id: temp_offset_input
+          value: -4
+    turn_off_action:
+      - number.set:
+          id: temp_offset_input
+          value: 0
+    lambda: |-
+      return id(temp_offset) <= -3.5;
+
+  - platform: template
+    name: "Absenkbetrieb"
+    id: eco_mode
+    icon: "mdi:leaf"
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - number.set:
+          id: temp_offset_input
+          value: 4
+    turn_off_action:
+      - number.set:
+          id: temp_offset_input
+          value: 0
+    lambda: |-
+      return id(temp_offset) >= 3.5;
+
+  - platform: template
+    name: "Manueller Modus"
+    id: manual_mode_switch
+    icon: "mdi:hand-back-left"
+    restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - globals.set:
+          id: manual_mode
+          value: 'true'
+      - component.update: virtual_room_temp
+    turn_off_action:
+      - globals.set:
+          id: manual_mode
+          value: 'false'
+      - component.update: virtual_room_temp
+    lambda: |-
+      return id(manual_mode);
+
+  - platform: restart
+    name: "ESP32 Neustart"
+    icon: "mdi:restart"
+
+# ============================================================
+# Status und Diagnose
+# ============================================================
+status_led:
+  pin:
+    number: GPIO2
+    inverted: false
+
+text_sensor:
+  - platform: wifi_info
+    ip_address:
+      name: "IP Adresse"
+    ssid:
+      name: "Verbundenes WLAN"
+
+  - platform: template
+    name: "Betriebsmodus"
+    lambda: |-
+      if (id(manual_mode)) {
+        return {"Manuell"};
+      } else if (id(temp_offset) <= -3.5) {
+        return {"Schnellaufheizen"};
+      } else if (id(temp_offset) >= 3.5) {
+        return {"Absenkbetrieb"};
+      } else {
+        return {"Automatik"};
+      }
+    update_interval: 10s
+
+  - platform: template
+    name: "Heizungsstatus"
+    lambda: |-
+      std::string status = "";
+      if (id(kamin_aktiv).state) status += "Kamin ";
+      if (id(fussboden_aktiv).state) status += "FBH ";
+      if (id(radiator_aktiv).state) status += "Radiator ";
+      if (id(warmwasser_aktiv).state) status += "Warmwasser ";
+      if (status.empty()) status = "Standby";
+      return status;
+    update_interval: 30s
+
+# ============================================================
+# Buttons
+# ============================================================
+button:
+  - platform: template
+    name: "Offset Reset"
+    icon: "mdi:restore"
+    on_press:
+      - number.set:
+          id: temp_offset_input
+          value: 0
+
+  - platform: template
+    name: "Werte aktualisieren"
+    icon: "mdi:refresh"
+    on_press:
+      - component.update: virtual_room_temp
