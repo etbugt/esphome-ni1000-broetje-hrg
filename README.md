@@ -34,21 +34,42 @@ ESP32-basierte smarte Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler 
                          MCP4162-502E/P (DIP-8)
                            ┌────────┐
              GPIO5    CS ──┤1      8├── VDD ── 3.3V
-             GPIO18  SCK ──┤2      7├── P0B ──────────── Klemme M (Heizung)
-             GPIO23  SDI ──┤3      6├── P0W ──┬── 180Ω ─┬── 1kΩ ── Klemme B5 (Heizung)
-                     GND ──┤4      5├── P0A   │         │
-                           └────────┘         └─────────┘
-                                              (parallel)
+             GPIO18  SCK ──┤2      7├── P0B ───────────┬───── Klemme M (Heizung)
+             GPIO23  SDI ──┤3      6├── P0W ───── 180Ω ┴──── 1kΩ ── Klemme B5 (Heizung)
+                     GND ──┤4      5├── P0A    (parallel)
+                           └────────┘         
+                                              
+
+Klemme B5 (Heizung)
+       │
+       │
+     ┌─┴─┐
+     │1kΩ│  Vorwiderstand
+     └─┬─┘
+       │
+       ├────────────────┬──────── P0W (Pin 6, Schleifer)
+       │                │
+       │              ┌─┴─┐
+       │              │   │
+       │              │180│  Parallelwiderstand
+       │              │ Ω │
+       │              │   │
+       │              └─┬─┘
+       │                │
+       └────────────────┴──────── P0B (Pin 7, Terminal B)
+                                    │
+                                    │
+                              Klemme M (Heizung)
 
 
 DS18B20 Sensoren (alle parallel):
 
                      ┌─────────────┐
-3.3V ────┬────4,7kΩ──┼── VDD       │
-         │           │             │
-GPIO0 ───┼───────────┼── DQ    DS18B20 (×8)
-         │           │             │
-GND ─────┴───────────┼── GND       │
+3.3V ────┬───────────┼── VDD       │
+         │4,7kΩ      │             │
+GPIO0 ───┴───────────┼── DQ    DS18B20 (×8)
+                     │             │
+GND ─────────────────┼── GND       │
                      └─────────────┘
 ```
 
