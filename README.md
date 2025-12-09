@@ -173,7 +173,7 @@ esphome run esphome-heizung-raumfuehler.yaml
 
 | Sensor | Bedingung |
 |--------|-----------|
-| Fußbodenheizung aktiv | Vorlauf > 25°C UND Spreizung > 1K |
+| Fußbodenheizung aktiv | Vorlauf > 25°C UND Spreizung > 0.5K |
 | Radiator aktiv | Vorlauf > 27°C |
 | Kamin aktiv | Rücklauf > 30°C UND Spreizung > 3K |
 | Warmwasser Bereitung | Rücklauf > 40°C UND Spreizung < 6K |
