@@ -32,9 +32,14 @@ esp32:
     type: esp-idf
 
 wifi:
-  ssid: "DEIN-WLAN"
-  password: "DEIN-PASSWORT"
-  
+  ssid: "DEIN-WLAN" # Anpassen!
+  password: "DEIN-PASSWORT" # Anpassen!
+  domain: .domain.local # Anpassen!
+  manual_ip:
+    static_ip: xxx.xxx.xxx.xxx # Anpassen!
+    gateway: xxx.xxx.xxx.xxx # Anpassen!
+    subnet: xxx.xxx.xxx.xxx # Anpassen!
+    dns1: xxx.xxx.xxx.xxx # Anpassen!
   ap:
     ssid: "Heizung-Fallback"
     password: "heizung123"
@@ -276,6 +281,32 @@ sensor:
     update_interval: 60s
 
   # ============================================================
+  # Gleitende Durchschnitte (30 Min) für Statuserkennung
+  # Glättet das Takten der Heizungspumpen
+  # ============================================================
+  - platform: copy
+    source_id: temp_fussboden_vl
+    name: "Fußboden Vorlauf Ø30min"
+    id: temp_fussboden_vl_avg
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - sliding_window_moving_average:
+          window_size: 30
+          send_every: 1
+
+  - platform: copy
+    source_id: temp_radiator_vl
+    name: "Radiator Vorlauf Ø30min"
+    id: temp_radiator_vl_avg
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - sliding_window_moving_average:
+          window_size: 30
+          send_every: 1
+
+  # ============================================================
   # Raumtemperatur-Sensoren von Home Assistant
   # ============================================================
   - platform: homeassistant
@@ -385,42 +416,39 @@ sensor:
 
 # ============================================================
 # Binäre Sensoren (Statuserkennung)
+# Vereinfachte Logik ohne Spreizung, mit gleitendem Durchschnitt
 # ============================================================
 binary_sensor:
-  # Kamin aktiv: Rücklauf > 30°C UND Spreizung > 3K
-  # (Wärmetauscher: heißes Wasser kommt am "Rücklauf" raus,
-  #  kaltes geht durch "Vorlauf" zum Kamin zurück)
+  # Kamin aktiv: Rücklauf > 30°C
   - platform: template
     name: "Kamin aktiv"
     id: kamin_aktiv
     icon: "mdi:fireplace"
     lambda: |-
-      if (!isnan(id(temp_kamin_vl).state) && !isnan(id(temp_kamin_rl).state)) {
-        float spreizung = id(temp_kamin_rl).state - id(temp_kamin_vl).state;
-        return (id(temp_kamin_rl).state > 30.0) && (spreizung > 3.0);
+      if (!isnan(id(temp_kamin_rl).state)) {
+        return id(temp_kamin_rl).state > 30.0;
       }
       return false;
 
-  # Fußbodenheizung aktiv: Vorlauf > 25°C UND Spreizung > 0.5K
+  # Fußbodenheizung aktiv: Vorlauf-Durchschnitt > 27°C
   - platform: template
     name: "Fußbodenheizung aktiv"
     id: fussboden_aktiv
     icon: "mdi:heating-coil"
     lambda: |-
-      if (!isnan(id(temp_fussboden_vl).state) && !isnan(id(temp_fussboden_rl).state)) {
-        float spreizung = id(temp_fussboden_vl).state - id(temp_fussboden_rl).state;
-        return (id(temp_fussboden_vl).state > 25.0) && (spreizung > 0.5);
+      if (!isnan(id(temp_fussboden_vl_avg).state)) {
+        return id(temp_fussboden_vl_avg).state > 27.0;
       }
       return false;
 
-  # Radiatoren aktiv: Vorlauf > 27°C
+  # Radiatoren aktiv: Vorlauf-Durchschnitt > 30°C
   - platform: template
     name: "Radiator aktiv"
     id: radiator_aktiv
     icon: "mdi:radiator"
     lambda: |-
-      if (!isnan(id(temp_radiator_vl).state)) {
-        return id(temp_radiator_vl).state > 27.0;
+      if (!isnan(id(temp_radiator_vl_avg).state)) {
+        return id(temp_radiator_vl_avg).state > 30.0;
       }
       return false;
 
@@ -432,15 +460,25 @@ binary_sensor:
     lambda: |-
       return id(fussboden_aktiv).state || id(radiator_aktiv).state;
 
-  # Warmwasser Bereitung: Rücklauf > 40°C UND Spreizung < 6K
+  # Warmwasser Ladung: Vorlauf > 50°C (wird gerade geladen)
   - platform: template
-    name: "Warmwasser Bereitung"
-    id: warmwasser_aktiv
+    name: "Warmwasser Ladung"
+    id: warmwasser_ladung
     icon: "mdi:water-boiler"
     lambda: |-
-      if (!isnan(id(temp_speicher_vl).state) && !isnan(id(temp_speicher_rl).state)) {
-        float spreizung = id(temp_speicher_vl).state - id(temp_speicher_rl).state;
-        return (id(temp_speicher_rl).state > 40.0) && (spreizung < 6.0);
+      if (!isnan(id(temp_speicher_vl).state)) {
+        return id(temp_speicher_vl).state > 50.0;
+      }
+      return false;
+
+  # Warmwasserbedarf: Vorlauf < 25°C (Speicher ist kalt)
+  - platform: template
+    name: "Warmwasserbedarf"
+    id: warmwasser_bedarf
+    icon: "mdi:water-boiler-alert"
+    lambda: |-
+      if (!isnan(id(temp_speicher_vl).state)) {
+        return id(temp_speicher_vl).state < 25.0;
       }
       return false;
 
@@ -578,7 +616,8 @@ text_sensor:
       if (id(kamin_aktiv).state) status += "Kamin ";
       if (id(fussboden_aktiv).state) status += "FBH ";
       if (id(radiator_aktiv).state) status += "Radiator ";
-      if (id(warmwasser_aktiv).state) status += "Warmwasser ";
+      if (id(warmwasser_ladung).state) status += "WW-Ladung ";
+      if (id(warmwasser_bedarf).state) status += "WW-Bedarf ";
       if (status.empty()) status = "Standby";
       return status;
     update_interval: 30s
