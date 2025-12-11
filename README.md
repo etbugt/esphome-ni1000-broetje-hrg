@@ -1,6 +1,6 @@
 # ESPHome Ni1000 Raumfühler-Simulation für Brötje HR MICRO G
 
-ESP32-basierte smarte Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (QAA 36.2) für Brötje HR MICRO G / Siemens RVP 76.132 Heizungsregler simuliert.
+ESP32-basierte Smarte Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (QAA 36.2) für Brötje HR MICRO G / Siemens RVP 76.132 Heizungsregler simuliert.
 
 ## ✨ Features
 
@@ -119,6 +119,12 @@ cp mcp4162.h /config/esphome/
 wifi:
   ssid: "DEIN-WLAN"
   password: "DEIN-PASSWORT"
+  domain: .domain.local # Anpassen!
+  manual_ip:
+    static_ip: xxx.xxx.xxx.xxx # Anpassen!
+    gateway: xxx.xxx.xxx.xxx # Anpassen!
+    subnet: xxx.xxx.xxx.xxx # Anpassen!
+    dns1: xxx.xxx.xxx.xxx # Anpassen!
 ```
 
 **Home Assistant Sensoren** für virtuelle Raumtemperatur:
@@ -171,13 +177,14 @@ esphome run esphome-heizung-raumfuehler.yaml
 
 ### Status-Sensoren
 
-| Sensor | Bedingung |
-|--------|-----------|
-| Fußbodenheizung aktiv | Vorlauf > 25°C UND Spreizung > 0.5K |
-| Radiator aktiv | Vorlauf > 27°C |
-| Kamin aktiv | Rücklauf > 30°C UND Spreizung > 3K |
-| Warmwasser Bereitung | Rücklauf > 40°C UND Spreizung < 6K |
-| Heizung aktiv | FBH ODER Radiator aktiv |
+| Sensor | Bedingung | Hinweis |
+|--------|-----------|---------|
+| Fußbodenheizung aktiv | Vorlauf-Ø30min > 27°C | Gleitender Durchschnitt glättet Takten |
+| Radiator aktiv | Vorlauf-Ø30min > 30°C | Gleitender Durchschnitt glättet Takten |
+| Kamin aktiv | Rücklauf > 30°C | |
+| Warmwasser Ladung | Vorlauf > 50°C | Wird gerade geladen |
+| Warmwasserbedarf | Vorlauf < 25°C | Speicher ist kalt |
+| Heizung aktiv | FBH ODER Radiator aktiv | |
 
 ### Steuerung
 
