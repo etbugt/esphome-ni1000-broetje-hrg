@@ -7,7 +7,7 @@ ESP32-basierte Smarte Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler 
 - **Raumtemperatur-Simulation**: Simuliert einen Ni1000 Raumfühler über Digital-Potentiometer
 - **Multi-Raum-Durchschnitt**: Berechnet virtuelle Raumtemperatur aus mehreren Home Assistant Sensoren
 - **8× DS18B20 Monitoring**: Überwacht alle Heizkreise (Vorlauf/Rücklauf)
-- **Automatische Statuserkennung**: Erkennt aktive Heizkreise, Kaminbetrieb und Warmwasserbereitung
+- **Intelligente Statuserkennung**: Erkennt aktive Heizkreise mit gleitendem Durchschnitt (kein Flackern bei taktenden Pumpen)
 - **Betriebsmodi**: Automatik, Schnellaufheizen, Absenkbetrieb, Manuell
 - **Non-Volatile**: MCP4162 behält Widerstandswert bei Stromausfall
 
@@ -18,7 +18,7 @@ ESP32-basierte Smarte Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler 
 | Bauteil | Typ | Ca. Preis |
 |---------|-----|-----------|
 | ESP32 DevKit V1 | ESP32-WROOM-32 | 5-8€ |
-| Digital-Potentiometer | MCP4162-502E/P (5kΩ, DIP-8) | 2-3€ |
+| Digital-Potentiometer | MCP4162-502E/P (5kΩ, DIP-8, Non-Volatile) | 2-3€ |
 | Temperatursensoren | DS18B20 (8 Stück) | 8-15€ |
 | Vorwiderstand | 1kΩ (0,25W) | 0,10€ |
 | Parallelwiderstand | 180Ω (0,25W) | 0,10€ |
@@ -93,6 +93,7 @@ GND ─────────────────┼── GND       │
 ```
 ├── esphome-heizung-raumfuehler.yaml  # ESPHome Hauptkonfiguration
 ├── mcp4162.h                          # MCP4162 SPI-Treiber (ESP-IDF)
+├── LICENSE                            # MIT Lizenz
 └── README.md
 ```
 
@@ -162,16 +163,18 @@ esphome run esphome-heizung-raumfuehler.yaml
 
 | Sensor | Beschreibung |
 |--------|--------------|
-| Heizung Fußboden Vorlauf/Rücklauf | Fußbodenheizung |
-| Heizung Radiator Vorlauf/Rücklauf | Heizkörper |
-| Heizung Kamin Vorlauf/Rücklauf | Kamin-Wärmetauscher |
-| Heizung Wasserspeicher Vorlauf/Rücklauf | Warmwasserspeicher |
+| Temp. Fußboden Vorlauf/Rücklauf | Fußbodenheizung |
+| Temp. Radiator Vorlauf/Rücklauf | Heizkörper |
+| Temp. Kamin Vorlauf/Rücklauf | Kamin-Wärmetauscher |
+| Temp. Wasserspeicher Vorlauf/Rücklauf | Warmwasserspeicher |
 
 ### Berechnete Werte
 
 | Sensor | Beschreibung |
 |--------|--------------|
 | Spreizung Fußboden/Radiator/Kamin/Wasserspeicher | Temperaturdifferenz VL-RL |
+| Temp. Fußboden Vorlauf Ø30min | Gleitender Durchschnitt (30 Min) |
+| Temp. Radiator Vorlauf Ø30min | Gleitender Durchschnitt (30 Min) |
 | Virtuelle Raumtemperatur | Durchschnitt der HA-Sensoren |
 | Simulierter Ni1000 Widerstand | Aktueller Widerstandswert |
 
@@ -179,10 +182,10 @@ esphome run esphome-heizung-raumfuehler.yaml
 
 | Sensor | Bedingung | Hinweis |
 |--------|-----------|---------|
-| Fußbodenheizung aktiv | Vorlauf-Ø30min > 27°C | Gleitender Durchschnitt glättet Takten |
-| Radiator aktiv | Vorlauf-Ø30min > 30°C | Gleitender Durchschnitt glättet Takten |
-| Kamin aktiv | Rücklauf > 30°C | |
-| Warmwasser Ladung | Vorlauf > 50°C | Wird gerade geladen |
+| Kreislauf Fußboden aktiv | Vorlauf-Ø30min > 27°C | Gleitender Durchschnitt glättet Takten |
+| Kreislauf Radiator aktiv | Vorlauf-Ø30min > 30°C | Gleitender Durchschnitt glättet Takten |
+| Kreislauf Kamin aktiv | Rücklauf > 30°C | |
+| Kreislauf Warmwasser aktiv | Vorlauf > 50°C | Wird gerade geladen |
 | Warmwasserbedarf | Vorlauf < 25°C | Speicher ist kalt |
 | Heizung aktiv | FBH ODER Radiator aktiv | |
 
@@ -234,9 +237,20 @@ Auflösung: ~0,8°C pro Wiper-Stufe
 - 257 Stufen (0-256)
 ```
 
+### Statuserkennung mit gleitendem Durchschnitt
+
+Die Heizungspumpen takten häufig (an/aus im Minutentakt). Um Flackern der Status-Anzeige zu vermeiden, wird ein **gleitender Durchschnitt über 30 Minuten** verwendet:
+
+```yaml
+filters:
+  - sliding_window_moving_average:
+      window_size: 30    # 30 Messungen
+      send_every: 1      # Bei 60s Update = 30 Minuten
+```
+
 ## 🏠 Home Assistant Integration
 
-Nach dem Flashen erscheint der ESP32 automatisch in Home Assistant. 
+Nach dem Flashen erscheint der ESP32 automatisch in Home Assistant.
 
 ### Beispiel-Automatisierung: Nachtabsenkung
 
@@ -271,10 +285,33 @@ entities:
   - entity: sensor.heizung_raumfuhler_heizungsstatus
   - entity: sensor.heizung_raumfuhler_betriebsmodus
   - type: divider
+  - entity: binary_sensor.heizung_raumfuhler_kreislauf_fussboden_aktiv
+  - entity: binary_sensor.heizung_raumfuhler_kreislauf_radiator_aktiv
+  - entity: binary_sensor.heizung_raumfuhler_kreislauf_kamin_aktiv
+  - entity: binary_sensor.heizung_raumfuhler_kreislauf_warmwasser_aktiv
+  - type: divider
   - entity: switch.heizung_raumfuhler_schnellaufheizen
   - entity: switch.heizung_raumfuhler_absenkbetrieb
   - entity: switch.heizung_raumfuhler_manueller_modus
   - entity: number.heizung_raumfuhler_temperatur_offset
+```
+
+### Beispiel-Temperatur-Graph
+
+```yaml
+type: custom:apexcharts-card
+header:
+  title: Heizkreise
+graph_span: 24h
+series:
+  - entity: sensor.heizung_raumfuhler_temp_fussboden_vorlauf
+    name: FBH Vorlauf
+  - entity: sensor.heizung_raumfuhler_temp_fussboden_rucklauf
+    name: FBH Rücklauf
+  - entity: sensor.heizung_raumfuhler_temp_radiator_vorlauf
+    name: Radiator Vorlauf
+  - entity: sensor.heizung_raumfuhler_temp_wasserspeicher_vorlauf
+    name: Warmwasser Vorlauf
 ```
 
 ## ⚠️ Sicherheitshinweise
