@@ -7,7 +7,8 @@ ESP32-basierte Smarte Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler 
 - **Raumtemperatur-Simulation**: Simuliert einen Ni1000 Raumfühler über Digital-Potentiometer
 - **Multi-Raum-Durchschnitt**: Berechnet virtuelle Raumtemperatur aus mehreren Home Assistant Sensoren
 - **8× DS18B20 Monitoring**: Überwacht alle Heizkreise (Vorlauf/Rücklauf)
-- **Intelligente Statuserkennung**: Erkennt aktive Heizkreise mit gleitendem Durchschnitt (kein Flackern bei taktenden Pumpen)
+- **Intelligente Statuserkennung**: Erkennt aktive Heizkreise mit gleitendem 30min-Durchschnitt (kein Flackern bei taktenden Pumpen)
+- **Nachtabsenkung-Erkennung**: Automatische Erkennung von Temperaturabsenkungen über 12h-Langzeittrend
 - **Betriebsmodi**: Automatik, Schnellaufheizen, Absenkbetrieb, Manuell
 - **Non-Volatile**: MCP4162 behält Widerstandswert bei Stromausfall
 
@@ -173,8 +174,10 @@ esphome run esphome-heizung-raumfuehler.yaml
 | Sensor | Beschreibung |
 |--------|--------------|
 | Spreizung Fußboden/Radiator/Kamin/Wasserspeicher | Temperaturdifferenz VL-RL |
-| Temp. Fußboden Vorlauf Ø30min | Gleitender Durchschnitt (30 Min) |
-| Temp. Radiator Vorlauf Ø30min | Gleitender Durchschnitt (30 Min) |
+| Temp. Ø30min Fußboden Vorlauf | Gleitender Durchschnitt (30 Min) für Statuserkennung |
+| Temp. Ø30min Radiator Vorlauf | Gleitender Durchschnitt (30 Min) für Statuserkennung |
+| Temp. Ø12h Fußboden Vorlauf | Gleitender Durchschnitt (12 Std) für Nachtabsenkung |
+| Temp. Ø12h Radiator Vorlauf | Gleitender Durchschnitt (12 Std) für Nachtabsenkung |
 | Virtuelle Raumtemperatur | Durchschnitt der HA-Sensoren |
 | Simulierter Ni1000 Widerstand | Aktueller Widerstandswert |
 
@@ -182,12 +185,14 @@ esphome run esphome-heizung-raumfuehler.yaml
 
 | Sensor | Bedingung | Hinweis |
 |--------|-----------|---------|
-| Kreislauf Fußboden aktiv | Vorlauf-Ø30min > 27°C | Gleitender Durchschnitt glättet Takten |
+| Kreislauf Fußboden aktiv | Vorlauf-Ø30min > 25,5°C | Gleitender Durchschnitt glättet Takten |
 | Kreislauf Radiator aktiv | Vorlauf-Ø30min > 30°C | Gleitender Durchschnitt glättet Takten |
 | Kreislauf Kamin aktiv | Rücklauf > 30°C | |
 | Kreislauf Warmwasser aktiv | Vorlauf > 50°C | Wird gerade geladen |
 | Warmwasserbedarf | Vorlauf < 25°C | Speicher ist kalt |
 | Heizung aktiv | FBH ODER Radiator aktiv | |
+| Nachtabsenkung Fußboden | Ø30min ≤25,5°C UND (Ø12h - Ø30min) ≥3K | Erkennt reduzierte Vorlauftemperatur |
+| Nachtabsenkung Radiator | Ø30min ≤30°C UND (Ø12h - Ø30min) ≥4K | Erkennt reduzierte Vorlauftemperatur |
 
 ### Steuerung
 
@@ -239,7 +244,10 @@ Auflösung: ~0,8°C pro Wiper-Stufe
 
 ### Statuserkennung mit gleitendem Durchschnitt
 
-Die Heizungspumpen takten häufig (an/aus im Minutentakt). Um Flackern der Status-Anzeige zu vermeiden, wird ein **gleitender Durchschnitt über 30 Minuten** verwendet:
+Die Heizungspumpen takten häufig (an/aus im Minutentakt). Um Flackern der Status-Anzeige zu vermeiden, werden **gleitende Durchschnitte** verwendet:
+
+#### 30-Minuten-Durchschnitt (Kurzzeittrend)
+Glättet das Takten der Pumpen für stabile Statuserkennung:
 
 ```yaml
 filters:
@@ -247,6 +255,31 @@ filters:
       window_size: 30    # 30 Messungen
       send_every: 1      # Bei 60s Update = 30 Minuten
 ```
+
+#### 12-Stunden-Durchschnitt (Langzeittrend)
+Ermöglicht die Erkennung von Nachtabsenkung durch Vergleich mit dem Kurzzeittrend:
+
+```yaml
+filters:
+  - sliding_window_moving_average:
+      window_size: 720   # 720 Messungen
+      send_every: 1      # Bei 60s Update = 12 Stunden
+```
+
+#### Nachtabsenkung-Erkennung
+
+Die Logik vergleicht Kurz- und Langzeitdurchschnitte:
+
+- **12h-Durchschnitt**: Spiegelt den "normalen" Betriebszustand über den Tag
+- **30min-Durchschnitt**: Zeigt die aktuelle Vorlauftemperatur
+- **Differenz ≥3-4K**: Deutet auf eine bewusste Temperaturabsenkung hin
+
+**Beispiel Fußbodenheizung:**
+- Tagsüber: Vorlauf 35°C → 12h-Ø ≈ 32°C
+- Nacht: Vorlauf 20°C → 30min-Ø ≈ 22°C
+- Differenz: 10K → Nachtabsenkung erkannt ✓
+
+Die unterschiedlichen Schwellenwerte (3K für Fußboden, 4K für Radiator) berücksichtigen die verschiedenen Betriebstemperaturen der Systeme.
 
 ## 🏠 Home Assistant Integration
 
@@ -289,6 +322,9 @@ entities:
   - entity: binary_sensor.heizung_raumfuhler_kreislauf_radiator_aktiv
   - entity: binary_sensor.heizung_raumfuhler_kreislauf_kamin_aktiv
   - entity: binary_sensor.heizung_raumfuhler_kreislauf_warmwasser_aktiv
+  - type: divider
+  - entity: binary_sensor.heizung_raumfuhler_nachtabsenkung_fussboden
+  - entity: binary_sensor.heizung_raumfuhler_nachtabsenkung_radiator
   - type: divider
   - entity: switch.heizung_raumfuhler_schnellaufheizen
   - entity: switch.heizung_raumfuhler_absenkbetrieb
