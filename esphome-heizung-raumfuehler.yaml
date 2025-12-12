@@ -281,12 +281,13 @@ sensor:
     update_interval: 60s
 
   # ============================================================
-  # Gleitende Durchschnitte (30 Min) für Statuserkennung
-  # Glättet das Takten der Heizungspumpen
+  # Gleitende Durchschnitte für Statuserkennung
+  # 30 Min: Glättet das Takten der Heizungspumpen
+  # 12 Std: Erkennung von Nachtabsenkung und Langzeittrends
   # ============================================================
   - platform: copy
     source_id: temp_fussboden_vl
-    name: "Temp. Fußboden Vorlauf Ø30min"
+    name: "Temp. Ø30min Fußboden Vorlauf"
     id: temp_fussboden_vl_avg
     unit_of_measurement: "°C"
     accuracy_decimals: 1
@@ -297,13 +298,35 @@ sensor:
 
   - platform: copy
     source_id: temp_radiator_vl
-    name: "Temp. Radiator Vorlauf Ø30min"
+    name: "Temp. Ø30min Radiator Vorlauf"
     id: temp_radiator_vl_avg
     unit_of_measurement: "°C"
     accuracy_decimals: 1
     filters:
       - sliding_window_moving_average:
           window_size: 30
+          send_every: 1
+
+  - platform: copy
+    source_id: temp_fussboden_vl
+    name: "Temp. Ø12h Fußboden Vorlauf"
+    id: temp_fussboden_vl_avg_12h
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - sliding_window_moving_average:
+          window_size: 720
+          send_every: 1
+
+  - platform: copy
+    source_id: temp_radiator_vl
+    name: "Temp. Ø12h Radiator Vorlauf"
+    id: temp_radiator_vl_avg_12h
+    unit_of_measurement: "°C"
+    accuracy_decimals: 1
+    filters:
+      - sliding_window_moving_average:
+          window_size: 720
           send_every: 1
 
   # ============================================================
@@ -430,14 +453,14 @@ binary_sensor:
       }
       return false;
 
-  # Fußbodenheizung aktiv: Vorlauf-Durchschnitt > 27°C
+  # Fußbodenheizung aktiv: Vorlauf-Durchschnitt > 25,5°C
   - platform: template
     name: "Kreislauf Fußboden aktiv"
     id: fussboden_aktiv
     icon: "mdi:heating-coil"
     lambda: |-
       if (!isnan(id(temp_fussboden_vl_avg).state)) {
-        return id(temp_fussboden_vl_avg).state > 27.0;
+        return id(temp_fussboden_vl_avg).state > 25.5;
       }
       return false;
 
@@ -479,6 +502,34 @@ binary_sensor:
     lambda: |-
       if (!isnan(id(temp_speicher_vl).state)) {
         return id(temp_speicher_vl).state < 25.0;
+      }
+      return false;
+
+  # Nachtabsenkung Fußboden: 30min-Ø ist deutlich niedriger als 12h-Ø
+  - platform: template
+    name: "Nachtabsenkung Fußboden"
+    id: nachtabsenkung_fussboden
+    icon: "mdi:sleep"
+    lambda: |-
+      if (!isnan(id(temp_fussboden_vl_avg).state) && !isnan(id(temp_fussboden_vl_avg_12h).state)) {
+        // Wenn Fußboden inaktiv oder 30min-Ø mindestens 3K niedriger als 12h-Ø
+        bool inaktiv = id(temp_fussboden_vl_avg).state <= 25.5;
+        bool abgesenkt = (id(temp_fussboden_vl_avg_12h).state - id(temp_fussboden_vl_avg).state) >= 3.0;
+        return inaktiv && abgesenkt;
+      }
+      return false;
+
+  # Nachtabsenkung Radiator: 30min-Ø ist deutlich niedriger als 12h-Ø
+  - platform: template
+    name: "Nachtabsenkung Radiator"
+    id: nachtabsenkung_radiator
+    icon: "mdi:sleep"
+    lambda: |-
+      if (!isnan(id(temp_radiator_vl_avg).state) && !isnan(id(temp_radiator_vl_avg_12h).state)) {
+        // Wenn Radiator inaktiv oder 30min-Ø mindestens 4K niedriger als 12h-Ø
+        bool inaktiv = id(temp_radiator_vl_avg).state <= 30.0;
+        bool abgesenkt = (id(temp_radiator_vl_avg_12h).state - id(temp_radiator_vl_avg).state) >= 4.0;
+        return inaktiv && abgesenkt;
       }
       return false;
 
