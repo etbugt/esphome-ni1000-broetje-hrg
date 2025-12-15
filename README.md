@@ -1,16 +1,17 @@
 # ESPHome Ni1000 Raumfühler-Simulation für Brötje HR MICRO G
 
-ESP32-basierte Smarte Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (QAA 36.2) für Brötje HR MICRO G / Siemens RVP 76.132 Heizungsregler simuliert.
+ESP32-basierte Smart-Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (QAA 36.2) für Brötje HR MICRO G / Siemens RVP 76.132 Heizungsregler simuliert.
 
 ## ✨ Features
 
 - **Raumtemperatur-Simulation**: Simuliert einen Ni1000 Raumfühler über Digital-Potentiometer
 - **Multi-Raum-Durchschnitt**: Berechnet virtuelle Raumtemperatur aus mehreren Home Assistant Sensoren
 - **8× DS18B20 Monitoring**: Überwacht alle Heizkreise (Vorlauf/Rücklauf)
-- **Intelligente Statuserkennung**: Erkennt aktive Heizkreise mit gleitendem 30min-Durchschnitt (kein Flackern bei taktenden Pumpen)
-- **Nachtabsenkung-Erkennung**: Automatische Erkennung von Temperaturabsenkungen über 12h-Langzeittrend
+- **Intelligente Statuserkennung**: Erkennt aktive Heizkreise mit gleitendem Durchschnitt (kein Flackern bei taktenden Pumpen)
+- **Nachtabsenkung-Erkennung**: Erkennt automatisch Absenkphasen durch Vergleich von 30min- und 1h-Durchschnitt
 - **Betriebsmodi**: Automatik, Schnellaufheizen, Absenkbetrieb, Manuell
 - **Non-Volatile**: MCP4162 behält Widerstandswert bei Stromausfall
+- **Optimierte Schreibzyklen**: Poti wird nur bei Änderung beschrieben
 
 ## 🔧 Hardware
 
@@ -39,7 +40,7 @@ ESP32-basierte Smarte Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler 
              GPIO23  SDI ──┤3      6├── P0W ───── 180Ω ┴──── 1kΩ ── Klemme B5 (Heizung)
                      GND ──┤4      5├── P0A    (parallel)
                            └────────┘         
-                                              
+
 
 Klemme B5 (Heizung)
        │
@@ -47,7 +48,7 @@ Klemme B5 (Heizung)
      │1kΩ│  Vorwiderstand
      └─┬─┘
        │
-       └────────────────┬──────── P0W (Pin 6, Schleifer)
+       ┴────────────────┬──────── P0W (Pin 6, Schleifer)
                         │
                       ┌─┴─┐
                       │   │
@@ -56,7 +57,7 @@ Klemme B5 (Heizung)
                       │   │
                       └─┬─┘
                         │
-       ┌────────────────┴──────── P0B (Pin 7, Terminal B)
+       ┬────────────────┴──────── P0B (Pin 7, Terminal B)
        │
  Klemme M (Heizung)
 
@@ -119,14 +120,14 @@ cp mcp4162.h /config/esphome/
 **WLAN-Zugangsdaten** in `esphome-heizung-raumfuehler.yaml`:
 ```yaml
 wifi:
-  ssid: "DEIN-WLAN"
-  password: "DEIN-PASSWORT"
-  domain: .domain.local # Anpassen!
+  ssid: "DEIN-WLAN"              # Anpassen!
+  password: "DEIN-PASSWORT"      # Anpassen!
+  domain: .domain.local          # Anpassen!
   manual_ip:
-    static_ip: xxx.xxx.xxx.xxx # Anpassen!
-    gateway: xxx.xxx.xxx.xxx # Anpassen!
-    subnet: xxx.xxx.xxx.xxx # Anpassen!
-    dns1: xxx.xxx.xxx.xxx # Anpassen!
+    static_ip: xxx.xxx.xxx.xxx   # Anpassen!
+    gateway: xxx.xxx.xxx.xxx     # Anpassen!
+    subnet: xxx.xxx.xxx.xxx      # Anpassen!
+    dns1: xxx.xxx.xxx.xxx        # Anpassen!
 ```
 
 **Home Assistant Sensoren** für virtuelle Raumtemperatur:
@@ -149,7 +150,7 @@ Beim ersten Flash werden die Sensoren noch nicht erkannt. So findest du die Adre
 1. Flashe den ESP32 mit der Konfiguration
 2. Öffne die Logs im ESPHome Dashboard
 3. Suche nach `Found sensors:` – dort stehen die 64-bit Adressen
-4. Trage die Adressen in der YAML ein
+4. Trage die Adressen in der YAML ein (alle mit `# Anpassen!` markiert)
 5. Flashe erneut
 
 ### 5. Kompilieren und Flashen
@@ -174,10 +175,10 @@ esphome run esphome-heizung-raumfuehler.yaml
 | Sensor | Beschreibung |
 |--------|--------------|
 | Spreizung Fußboden/Radiator/Kamin/Wasserspeicher | Temperaturdifferenz VL-RL |
-| Temp. Ø30min Fußboden Vorlauf | Gleitender Durchschnitt (30 Min) für Statuserkennung |
-| Temp. Ø30min Radiator Vorlauf | Gleitender Durchschnitt (30 Min) für Statuserkennung |
-| Temp. Ø12h Fußboden Vorlauf | Gleitender Durchschnitt (12 Std) für Nachtabsenkung |
-| Temp. Ø12h Radiator Vorlauf | Gleitender Durchschnitt (12 Std) für Nachtabsenkung |
+| Temp. Ø30min Fußboden Vorlauf | Gleitender Durchschnitt (30 Min) |
+| Temp. Ø30min Radiator Vorlauf | Gleitender Durchschnitt (30 Min) |
+| Temp. Ø1h Fußboden Vorlauf | Gleitender Durchschnitt (1 Stunde) |
+| Temp. Ø1h Radiator Vorlauf | Gleitender Durchschnitt (1 Stunde) |
 | Virtuelle Raumtemperatur | Durchschnitt der HA-Sensoren |
 | Simulierter Ni1000 Widerstand | Aktueller Widerstandswert |
 
@@ -191,8 +192,8 @@ esphome run esphome-heizung-raumfuehler.yaml
 | Kreislauf Warmwasser aktiv | Vorlauf > 50°C | Wird gerade geladen |
 | Warmwasserbedarf | Vorlauf < 25°C | Speicher ist kalt |
 | Heizung aktiv | FBH ODER Radiator aktiv | |
-| Nachtabsenkung Fußboden | Ø30min ≤25,5°C UND (Ø12h - Ø30min) ≥3K | Erkennt reduzierte Vorlauftemperatur |
-| Nachtabsenkung Radiator | Ø30min ≤30°C UND (Ø12h - Ø30min) ≥4K | Erkennt reduzierte Vorlauftemperatur |
+| Nachtabsenkung Fußboden | Ø30min ≤ 25,5°C UND Ø1h - Ø30min ≥ 3K | Erkennt Absenkphasen |
+| Nachtabsenkung Radiator | Ø30min ≤ 30°C UND Ø1h - Ø30min ≥ 4K | Erkennt Absenkphasen |
 
 ### Steuerung
 
@@ -230,7 +231,7 @@ Mit:
 - MCP4162: 0-5000Ω (257 Stufen)
 
 Effektiver Bereich: 1000Ω - 1165Ω
-Auflösung: ~0,8°C pro Wiper-Stufe
+Auflösung: ~0,4°C pro Wiper-Stufe
 ```
 
 ### SPI-Protokoll MCP4162
@@ -246,40 +247,41 @@ Auflösung: ~0,8°C pro Wiper-Stufe
 
 Die Heizungspumpen takten häufig (an/aus im Minutentakt). Um Flackern der Status-Anzeige zu vermeiden, werden **gleitende Durchschnitte** verwendet:
 
-#### 30-Minuten-Durchschnitt (Kurzzeittrend)
-Glättet das Takten der Pumpen für stabile Statuserkennung:
+| Durchschnitt | Zweck |
+|--------------|-------|
+| Ø30min | Statuserkennung (FBH/Radiator aktiv) |
+| Ø1h | Nachtabsenkung-Erkennung |
 
 ```yaml
 filters:
   - sliding_window_moving_average:
-      window_size: 30    # 30 Messungen
-      send_every: 1      # Bei 60s Update = 30 Minuten
+      window_size: 30    # 30 Messungen = 30 Minuten
+      send_every: 1
 ```
 
-#### 12-Stunden-Durchschnitt (Langzeittrend)
-Ermöglicht die Erkennung von Nachtabsenkung durch Vergleich mit dem Kurzzeittrend:
+### Nachtabsenkung-Erkennung
 
-```yaml
-filters:
-  - sliding_window_moving_average:
-      window_size: 720   # 720 Messungen
-      send_every: 1      # Bei 60s Update = 12 Stunden
+Die Nachtabsenkung wird erkannt durch Vergleich von 30min- und 1h-Durchschnitt:
+
+```
+Nachtabsenkung FBH = (Ø30min ≤ 25,5°C) UND (Ø1h - Ø30min ≥ 3K)
+Nachtabsenkung Radiator = (Ø30min ≤ 30°C) UND (Ø1h - Ø30min ≥ 4K)
 ```
 
-#### Nachtabsenkung-Erkennung
+Wenn die Temperatur schnell fällt (30min-Wert deutlich unter 1h-Wert), ist die Heizung in Absenkung.
 
-Die Logik vergleicht Kurz- und Langzeitdurchschnitte:
+### Optimierte Schreibzyklen
 
-- **12h-Durchschnitt**: Spiegelt den "normalen" Betriebszustand über den Tag
-- **30min-Durchschnitt**: Zeigt die aktuelle Vorlauftemperatur
-- **Differenz ≥3-4K**: Deutet auf eine bewusste Temperaturabsenkung hin
+Der MCP4162 wird nur beschrieben, wenn sich der Wiper-Wert tatsächlich ändert:
 
-**Beispiel Fußbodenheizung:**
-- Tagsüber: Vorlauf 35°C → 12h-Ø ≈ 32°C
-- Nacht: Vorlauf 20°C → 30min-Ø ≈ 22°C
-- Differenz: 10K → Nachtabsenkung erkannt ✓
+```cpp
+if (wiper != id(last_wiper)) {
+  mcp4162.setWiper(wiper);
+  id(last_wiper) = wiper;
+}
+```
 
-Die unterschiedlichen Schwellenwerte (3K für Fußboden, 4K für Radiator) berücksichtigen die verschiedenen Betriebstemperaturen der Systeme.
+Dies schont das EEPROM und reduziert SPI-Traffic.
 
 ## 🏠 Home Assistant Integration
 
@@ -348,6 +350,21 @@ series:
     name: Radiator Vorlauf
   - entity: sensor.heizung_raumfuhler_temp_wasserspeicher_vorlauf
     name: Warmwasser Vorlauf
+```
+
+### Beispiel: Nachtabsenkung-Benachrichtigung
+
+```yaml
+automation:
+  - alias: "Benachrichtigung Nachtabsenkung aktiv"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.heizung_raumfuhler_nachtabsenkung_fussboden
+        to: "on"
+    action:
+      - service: notify.mobile_app
+        data:
+          message: "Heizung ist in Nachtabsenkung"
 ```
 
 ## ⚠️ Sicherheitshinweise
