@@ -4,12 +4,22 @@
 # 
 # Hardware:
 # - MCP4162-502E/P (5kΩ Single Digital-Poti, Non-Volatile!)
-# - 180Ω Parallelwiderstand (reduziert Bereich auf ~0-170Ω)
+# - 200Ω Parallelwiderstand (reduziert Bereich auf ~0-192Ω)
 # - 1kΩ Vorwiderstand
-# - Gesamtbereich: 1000Ω - 1170Ω (entspricht -5°C bis 35°C)
+# - Gesamtbereich: 1000Ω - 1192Ω (entspricht -5°C bis 40°C)
+#
+# MCP4162 Pinout (DIP-8):
+# - Pin 1: CS    → GPIO5
+# - Pin 2: SCK   → GPIO18
+# - Pin 3: SDI   → GPIO23
+# - Pin 4: VSS   → GND
+# - Pin 5: P0W   → Schleifer (über 200Ω parallel zu P0B)
+# - Pin 6: P0B   → Klemme M (Heizung)
+# - Pin 7: SDO   → nicht verwendet
+# - Pin 8: VDD   → 3.3V
 #
 # Vorteil MCP4162: Behält Widerstandswert bei Stromausfall!
-# Auflösung: ~0,4°C pro Wiper-Stufe im Bereich 10-30°C
+# Auflösung: ~0,6°C pro Wiper-Stufe im Bereich 10-30°C
 #
 # Inkl. 8x DS18B20 Temperatursensoren am 1-Wire Bus (GPIO0)
 # ============================================================
@@ -96,7 +106,7 @@ globals:
 # ============================================================
 # Ni1000 Kennlinie: R = 4.2 * T + 1021
 # Vorwiderstand: 1000Ω
-# Parallelwiderstand: 180Ω
+# Parallelwiderstand: 200Ω
 # MCP4162 Poti: 5kΩ / 257 Stufen = 19.53Ω pro Stufe
 # Non-Volatile: Wert bleibt bei Stromausfall erhalten!
 # ============================================================
@@ -122,12 +132,12 @@ output:
 
             // Begrenzen auf sinnvollen Bereich
             if (r_eff < 10.0) r_eff = 10.0;
-            if (r_eff > 165.0) r_eff = 165.0;  // Max bei 180Ω parallel
+            if (r_eff > 192.0) r_eff = 192.0;  // Max bei 200Ω parallel
 
             // Parallelwiderstand-Formel umkehren:
-            // r_eff = (r_poti * 180) / (r_poti + 180)
-            // → r_poti = (r_eff * 180) / (180 - r_eff)
-            float r_parallel = 180.0;
+            // r_eff = (r_poti * 200) / (r_poti + 200)
+            // → r_poti = (r_eff * 200) / (200 - r_eff)
+            float r_parallel = 200.0;
             float r_poti = (r_eff * r_parallel) / (r_parallel - r_eff);
 
             // Wiper-Position berechnen (5kΩ = 256 Stufen)
@@ -341,12 +351,12 @@ sensor:
   # ============================================================
   - platform: homeassistant
     id: temp_wohnzimmer
-    entity_id: sensor.pws_temperature_indoor
+    entity_id: sensor.pws_temperature_indoor  # Anpassen!
     internal: true
 
   - platform: homeassistant
     id: temp_kinderzimmer
-    entity_id: sensor.heizung_kinderzimmer_air_temperature
+    entity_id: sensor.heizung_kinderzimmer_air_temperature  # Anpassen!
     internal: true
 
   # ============================================================
@@ -420,7 +430,7 @@ sensor:
       float r_ni1000 = 4.2 * temp + 1021.0;
       float r_eff = r_ni1000 - 1000.0;
       if (r_eff < 10) r_eff = 10;
-      if (r_eff > 165) r_eff = 165;
+      if (r_eff > 192) r_eff = 192;
       return r_eff;
 
   - platform: template
