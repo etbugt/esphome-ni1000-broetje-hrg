@@ -52,7 +52,7 @@ ota:
   platform: esphome
 
 logger:
-  level: DEBUG
+  level: INFO
 
 # ============================================================
 # Dallas 1-Wire Bus für DS18B20 Sensoren
@@ -86,6 +86,11 @@ globals:
     restore_value: no
     initial_value: '15'
 
+  - id: last_wiper
+    type: int
+    restore_value: yes
+    initial_value: '-1'
+
 # ============================================================
 # Konstanten für Berechnung
 # ============================================================
@@ -104,41 +109,43 @@ output:
     id: digipot_output
     type: float
     write_action:
-      - lambda: |-
-          // state enthält die Temperatur in °C
-          float temp = state;
-          
-          // Ni1000 Widerstand berechnen: R = 4.2 * T + 1021
-          float r_ni1000 = 4.2 * temp + 1021.0;
-          
-          // Benötigter effektiver Poti-Widerstand (nach Vorwiderstand)
-          float r_eff = r_ni1000 - 1000.0;
-          
-          // Begrenzen auf sinnvollen Bereich
-          if (r_eff < 10.0) r_eff = 10.0;
-          if (r_eff > 165.0) r_eff = 165.0;  // Max bei 180Ω parallel
-          
-          // Parallelwiderstand-Formel umkehren:
-          // r_eff = (r_poti * 180) / (r_poti + 180)
-          // → r_poti = (r_eff * 180) / (180 - r_eff)
-          float r_parallel = 180.0;
-          float r_poti = (r_eff * r_parallel) / (r_parallel - r_eff);
-          
-          // Wiper-Position berechnen (5kΩ = 256 Stufen)
-          int wiper = (int)(r_poti / 5000.0 * 256.0 + 0.5);
-          
-          // Begrenzen
-          if (wiper < 0) wiper = 0;
-          if (wiper > 256) wiper = 256;
-          
-          // Speichern für Diagnose
-          id(current_wiper) = wiper;
-          
-          // MCP4162 setzen
-          mcp4162.setWiper(wiper);
-          
-          ESP_LOGD("mcp4162", "Temp=%.1f°C → R_Ni1000=%.0fΩ → R_eff=%.0fΩ → R_poti=%.0fΩ → Wiper=%d", 
-                   temp, r_ni1000, r_eff, r_poti, wiper);
+      then:
+        - lambda: |-
+            // state enthält die Temperatur in °C
+            float temp = state;
+
+            // Ni1000 Widerstand berechnen: R = 4.2 * T + 1021
+            float r_ni1000 = 4.2 * temp + 1021.0;
+
+            // Benötigter effektiver Poti-Widerstand (nach Vorwiderstand)
+            float r_eff = r_ni1000 - 1000.0;
+
+            // Begrenzen auf sinnvollen Bereich
+            if (r_eff < 10.0) r_eff = 10.0;
+            if (r_eff > 165.0) r_eff = 165.0;  // Max bei 180Ω parallel
+
+            // Parallelwiderstand-Formel umkehren:
+            // r_eff = (r_poti * 180) / (r_poti + 180)
+            // → r_poti = (r_eff * 180) / (180 - r_eff)
+            float r_parallel = 180.0;
+            float r_poti = (r_eff * r_parallel) / (r_parallel - r_eff);
+
+            // Wiper-Position berechnen (5kΩ = 256 Stufen)
+            int wiper = (int)(r_poti / 5000.0 * 256.0 + 0.5);
+
+            // Begrenzen
+            if (wiper < 0) wiper = 0;
+            if (wiper > 256) wiper = 256;
+
+            // Speichern für Diagnose
+            id(current_wiper) = wiper;
+
+            // Nur setzen wenn sich der Wert geändert hat
+            if (wiper != id(last_wiper)) {
+              mcp4162.setWiper(wiper);
+              id(last_wiper) = wiper;
+              ESP_LOGI("digipot", "Wiper geändert: %d (Temp: %.1f°C)", wiper, temp);
+            }
 
 # ============================================================
 # Sensoren
@@ -150,7 +157,7 @@ sensor:
   # ----- Fußbodenheizung -----
   - platform: dallas_temp
     one_wire_id: onewire_bus
-    address: 0x0000000000000000 # Anpassen!
+    address: 0x710622611f54d028 # Anpassen!
     name: "Temp. Fußboden Rücklauf"
     id: temp_fussboden_rl
     unit_of_measurement: "°C"
@@ -159,7 +166,7 @@ sensor:
       - filter_out: nan
   - platform: dallas_temp
     one_wire_id: onewire_bus
-    address: 0x0000000000000000 # Anpassen!
+    address: 0xb30622611cc75328 # Anpassen!
     name: "Temp. Fußboden Vorlauf"
     id: temp_fussboden_vl
     unit_of_measurement: "°C"
@@ -169,7 +176,7 @@ sensor:
   # ----- Kamin -----
   - platform: dallas_temp
     one_wire_id: onewire_bus
-    address: 0x0000000000000000 # Anpassen!
+    address: 0xde06226153df3a28 # Anpassen!
     name: "Temp. Kamin Rücklauf"
     id: temp_kamin_rl
     unit_of_measurement: "°C"
@@ -178,7 +185,7 @@ sensor:
       - filter_out: nan
   - platform: dallas_temp
     one_wire_id: onewire_bus
-    address: 0x0000000000000000 # Anpassen!
+    address: 0xd90622614248c528 # Anpassen!
     name: "Temp. Kamin Vorlauf"
     id: temp_kamin_vl
     unit_of_measurement: "°C"
@@ -188,7 +195,7 @@ sensor:
   # ----- Radiatoren -----
   - platform: dallas_temp
     one_wire_id: onewire_bus
-    address: 0x0000000000000000 # Anpassen!
+    address: 0x470622610f260f28 # Anpassen!
     name: "Temp. Radiator Rücklauf"
     id: temp_radiator_rl
     unit_of_measurement: "°C"
@@ -197,7 +204,7 @@ sensor:
       - filter_out: nan
   - platform: dallas_temp
     one_wire_id: onewire_bus
-    address: 0x0000000000000000 # Anpassen!
+    address: 0x380622610da1c328 # Anpassen!
     name: "Temp. Radiator Vorlauf"
     id: temp_radiator_vl
     unit_of_measurement: "°C"
@@ -207,7 +214,7 @@ sensor:
   # ----- Wasserspeicher -----
   - platform: dallas_temp
     one_wire_id: onewire_bus
-    address: 0x0000000000000000 # Anpassen!
+    address: 0x7e0622613156c628 # Anpassen!
     name: "Temp. Wasserspeicher Rücklauf"
     id: temp_speicher_rl
     unit_of_measurement: "°C"
@@ -216,7 +223,7 @@ sensor:
       - filter_out: nan
   - platform: dallas_temp
     one_wire_id: onewire_bus
-    address: 0x0000000000000000 # Anpassen!
+    address: 0x5d0622611ff5ad28 # Anpassen!
     name: "Temp. Wasserspeicher Vorlauf"
     id: temp_speicher_vl
     unit_of_measurement: "°C"
@@ -283,7 +290,7 @@ sensor:
   # ============================================================
   # Gleitende Durchschnitte für Statuserkennung
   # 30 Min: Glättet das Takten der Heizungspumpen
-  # 12 Std: Erkennung von Nachtabsenkung und Langzeittrends
+  # 1 Std: Erkennung von Nachtabsenkung und Langzeittrends
   # ============================================================
   - platform: copy
     source_id: temp_fussboden_vl
@@ -309,24 +316,24 @@ sensor:
 
   - platform: copy
     source_id: temp_fussboden_vl
-    name: "Temp. Ø12h Fußboden Vorlauf"
-    id: temp_fussboden_vl_avg_12h
+    name: "Temp. Ø1h Fußboden Vorlauf"
+    id: temp_fussboden_vl_avg_1h
     unit_of_measurement: "°C"
     accuracy_decimals: 1
     filters:
       - sliding_window_moving_average:
-          window_size: 720
+          window_size: 60
           send_every: 1
 
   - platform: copy
     source_id: temp_radiator_vl
-    name: "Temp. Ø12h Radiator Vorlauf"
-    id: temp_radiator_vl_avg_12h
+    name: "Temp. Ø1h Radiator Vorlauf"
+    id: temp_radiator_vl_avg_1h
     unit_of_measurement: "°C"
     accuracy_decimals: 1
     filters:
       - sliding_window_moving_average:
-          window_size: 720
+          window_size: 60
           send_every: 1
 
   # ============================================================
@@ -356,10 +363,10 @@ sensor:
       if (id(manual_mode)) {
         return id(manual_temp);
       }
-      
+
       float sum = 0;
       int count = 0;
-      
+
       if (!isnan(id(temp_wohnzimmer).state)) {
         sum += id(temp_wohnzimmer).state;
         count++;
@@ -368,7 +375,7 @@ sensor:
         sum += id(temp_kinderzimmer).state;
         count++;
       }
-      
+
       if (count > 0) {
         return sum / count;
       }
@@ -378,15 +385,13 @@ sensor:
         - lambda: |-
             // Temperatur mit Offset an Output übergeben
             float temp = x + id(temp_offset);
-            
+
             // Begrenzen auf sinnvollen Bereich
             if (temp < -5.0) temp = -5.0;
             if (temp > 35.0) temp = 35.0;
-            
+
             // Output setzen (Temperatur direkt übergeben)
             id(digipot_output).set_level(temp);
-            
-            ESP_LOGD("heizung", "Virtuelle Temp: %.1f°C (mit Offset: %.1f°C)", x, temp);
 
   # ============================================================
   # Diagnose-Sensoren
@@ -423,7 +428,7 @@ sensor:
     id: wiper_position
     icon: "mdi:tune"
     accuracy_decimals: 0
-    update_interval: 10s
+    update_interval: 60s
     lambda: |-
       return id(current_wiper);
 
@@ -505,30 +510,30 @@ binary_sensor:
       }
       return false;
 
-  # Nachtabsenkung Fußboden: 30min-Ø ist deutlich niedriger als 12h-Ø
+  # Nachtabsenkung Fußboden: 30min-Ø ist deutlich niedriger als 1h-Ø
   - platform: template
     name: "Nachtabsenkung Fußboden"
     id: nachtabsenkung_fussboden
     icon: "mdi:sleep"
     lambda: |-
-      if (!isnan(id(temp_fussboden_vl_avg).state) && !isnan(id(temp_fussboden_vl_avg_12h).state)) {
-        // Wenn Fußboden inaktiv oder 30min-Ø mindestens 3K niedriger als 12h-Ø
+      if (!isnan(id(temp_fussboden_vl_avg).state) && !isnan(id(temp_fussboden_vl_avg_1h).state)) {
+        // Wenn Fußboden inaktiv oder 30min-Ø mindestens 3K niedriger als 1h-Ø
         bool inaktiv = id(temp_fussboden_vl_avg).state <= 25.5;
-        bool abgesenkt = (id(temp_fussboden_vl_avg_12h).state - id(temp_fussboden_vl_avg).state) >= 3.0;
+        bool abgesenkt = (id(temp_fussboden_vl_avg_1h).state - id(temp_fussboden_vl_avg).state) >= 3.0;
         return inaktiv && abgesenkt;
       }
       return false;
 
-  # Nachtabsenkung Radiator: 30min-Ø ist deutlich niedriger als 12h-Ø
+  # Nachtabsenkung Radiator: 30min-Ø ist deutlich niedriger als 1h-Ø
   - platform: template
     name: "Nachtabsenkung Radiator"
     id: nachtabsenkung_radiator
     icon: "mdi:sleep"
     lambda: |-
-      if (!isnan(id(temp_radiator_vl_avg).state) && !isnan(id(temp_radiator_vl_avg_12h).state)) {
-        // Wenn Radiator inaktiv oder 30min-Ø mindestens 4K niedriger als 12h-Ø
+      if (!isnan(id(temp_radiator_vl_avg).state) && !isnan(id(temp_radiator_vl_avg_1h).state)) {
+        // Wenn Radiator inaktiv oder 30min-Ø mindestens 4K niedriger als 1h-Ø
         bool inaktiv = id(temp_radiator_vl_avg).state <= 30.0;
-        bool abgesenkt = (id(temp_radiator_vl_avg_12h).state - id(temp_radiator_vl_avg).state) >= 4.0;
+        bool abgesenkt = (id(temp_radiator_vl_avg_1h).state - id(temp_radiator_vl_avg).state) >= 4.0;
         return inaktiv && abgesenkt;
       }
       return false;
@@ -690,3 +695,10 @@ button:
     icon: "mdi:refresh"
     on_press:
       - component.update: virtual_room_temp
+
+  - platform: template
+    name: "Test: Setze 20°C"
+    icon: "mdi:test-tube"
+    on_press:
+      - lambda: |-
+          id(digipot_output).set_level(20.0);
