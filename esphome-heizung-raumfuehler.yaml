@@ -695,10 +695,3 @@ button:
     icon: "mdi:refresh"
     on_press:
       - component.update: virtual_room_temp
-
-  - platform: template
-    name: "Test: Setze 20°C"
-    icon: "mdi:test-tube"
-    on_press:
-      - lambda: |-
-          id(digipot_output).set_level(20.0);
