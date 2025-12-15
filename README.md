@@ -10,8 +10,6 @@ ESP32-basierte Smart-Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (
 - **Intelligente Statuserkennung**: Erkennt aktive Heizkreise mit gleitendem Durchschnitt (kein Flackern bei taktenden Pumpen)
 - **Nachtabsenkung-Erkennung**: Erkennt automatisch Absenkphasen durch Vergleich von 30min- und 1h-Durchschnitt
 - **Betriebsmodi**: Automatik, Schnellaufheizen, Absenkbetrieb, Manuell
-- **Non-Volatile**: MCP4162 behält Widerstandswert bei Stromausfall
-- **Optimierte Schreibzyklen**: Poti wird nur bei Änderung beschrieben
 
 ## 🔧 Hardware
 
@@ -23,7 +21,7 @@ ESP32-basierte Smart-Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (
 | Digital-Potentiometer | MCP4162-502E/P (5kΩ, DIP-8, Non-Volatile) | 2-3€ |
 | Temperatursensoren | DS18B20 (8 Stück) | 8-15€ |
 | Vorwiderstand | 1kΩ (0,25W) | 0,10€ |
-| Parallelwiderstand | 180Ω (0,25W) | 0,10€ |
+| Parallelwiderstand | 200Ω (0,25W) | 0,10€ |
 | Pull-up Widerstand | 4,7kΩ (für 1-Wire Bus) | 0,10€ |
 | Netzteil | 5V/1A USB | 3-6€ |
 | Gehäuse | optional | 3-8€ |
@@ -34,33 +32,15 @@ ESP32-basierte Smart-Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (
 
 ```
                          MCP4162-502E/P (DIP-8)
-                           ┌────────┐
-             GPIO5    CS ──┤1      8├── VDD ── 3.3V
-             GPIO18  SCK ──┤2      7├── P0B ───────────┬─────────── Klemme M (Heizung)
-             GPIO23  SDI ──┤3      6├── P0W ───── 180Ω ┴──── 1kΩ ── Klemme B5 (Heizung)
-                     GND ──┤4      5├── P0A    (parallel)
-                           └────────┘         
-
-
-Klemme B5 (Heizung)
-       │
-     ┌─┴─┐
-     │1kΩ│  Vorwiderstand
-     └─┬─┘
-       │
-       ┴────────────────┬──────── P0W (Pin 6, Schleifer)
-                        │
-                      ┌─┴─┐
-                      │   │
-                      │180│  Parallelwiderstand
-                      │ Ω │
-                      │   │
-                      └─┬─┘
-                        │
-       ┬────────────────┴──────── P0B (Pin 7, Terminal B)
-       │
- Klemme M (Heizung)
-
+                           ┌────────────┐
+             GPIO5    CS ──┤1          8├── VDD ── 3.3V
+                           │            │
+             GPIO18  SCK ──┤2          7├── SDO   (nicht verwendet)
+                           │            │
+             GPIO23  SDI ──┤3          6├── P0B ────┬─────────── Klemme M (Heizung)
+                           │            │           │200Ω (parallel)
+                     GND ──┤4          5├── P0W ────┴──── 1kΩ ── Klemme B5 (Heizung)
+                           └────────────┘         
 
 DS18B20 Sensoren (alle parallel):
 
@@ -87,8 +67,8 @@ GND ─────────────────┼── GND       │
 
 | Heizungsklemme | Verbindung |
 |----------------|------------|
-| B5 | → 1kΩ → Parallelschaltung → MCP4162 P0W |
-| M | → MCP4162 P0B |
+| B5 | → 1kΩ → Parallelschaltung → MCP4162 P0W (Pin 5) |
+| M | → MCP4162 P0B (Pin 6) |
 
 ## 📁 Dateien
 
@@ -134,12 +114,12 @@ wifi:
 ```yaml
 - platform: homeassistant
   id: temp_wohnzimmer
-  entity_id: sensor.dein_wohnzimmer_temperatur  # Anpassen!
+  entity_id: sensor.pws_temperature_indoor  # Anpassen!
   internal: true
 
 - platform: homeassistant
   id: temp_kinderzimmer
-  entity_id: sensor.dein_kinderzimmer_temperatur  # Anpassen!
+  entity_id: sensor.heizung_kinderzimmer_air_temperature  # Anpassen!
   internal: true
 ```
 
@@ -223,15 +203,15 @@ Beispiele:
 ### Widerstandsberechnung
 
 ```
-Gesamtwiderstand = Vorwiderstand + Parallelschaltung(Poti, 180Ω)
+Gesamtwiderstand = Vorwiderstand + Parallelschaltung(Poti, 200Ω)
 
 Mit:
 - Vorwiderstand: 1000Ω (fest)
-- Parallelwiderstand: 180Ω
+- Parallelwiderstand: 200Ω
 - MCP4162: 0-5000Ω (257 Stufen)
 
-Effektiver Bereich: 1000Ω - 1165Ω
-Auflösung: ~0,4°C pro Wiper-Stufe
+Effektiver Bereich: 1000Ω - 1192Ω
+Auflösung: ~0,6°C pro Wiper-Stufe
 ```
 
 ### SPI-Protokoll MCP4162
