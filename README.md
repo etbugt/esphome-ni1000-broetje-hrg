@@ -47,18 +47,18 @@ Klemme B5 (Heizung)
      │1kΩ│  Vorwiderstand
      └─┬─┘
        │
-       ├────────────────┬──────── P0W (Pin 6, Schleifer)
-       │                │
-       │              ┌─┴─┐
-       │              │   │
-       │              │180│  Parallelwiderstand
-       │              │ Ω │
-       │              │   │
-       │              └─┬─┘
-       │                │
-       └────────────────┴──────── P0B (Pin 7, Terminal B)
-                                    │
-                              Klemme M (Heizung)
+       └────────────────┬──────── P0W (Pin 6, Schleifer)
+                        │
+                      ┌─┴─┐
+                      │   │
+                      │180│  Parallelwiderstand
+                      │ Ω │
+                      │   │
+                      └─┬─┘
+                        │
+       ┌────────────────┴──────── P0B (Pin 7, Terminal B)
+       │
+ Klemme M (Heizung)
 
 
 DS18B20 Sensoren (alle parallel):
