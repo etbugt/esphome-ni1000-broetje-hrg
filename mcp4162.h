@@ -1,5 +1,5 @@
 // mcp4162.h - MCP4162 Digital Potentiometer Driver for ESPHome (ESP-IDF)
-// Single 5kΩ Non-Volatile Poti für Ni1000 Raumfühler-Simulation
+// Single 5kΩ Non-Volatile Rheostat für Ni1000 Raumfühler-Simulation
 // 
 // Vorteil MCP4162: Behält Wert bei Stromausfall (EEPROM)!
 //
@@ -8,10 +8,10 @@
 // Pin 2: SCK  → GPIO18
 // Pin 3: SDI  → GPIO23
 // Pin 4: VSS  → GND
-// Pin 5: P0A  → offen
-// Pin 6: P0W  → Schleifer (zum Parallelwiderstand)
-// Pin 7: P0B  → Klemme M
-// Pin 8: VDD  → 3.3V
+// Pin 5: P0W  → Schleifer (über 500Ω||220Ω parallel zu P0B, dann 1kΩ zu Klemme B5)
+// Pin 6: P0B  → Klemme M (Heizung)
+// Pin 7: SDO  → nicht verwendet
+// Pin 8: VDD  → 5V (WICHTIG: nicht 3.3V, da Heizung 5V auf Sensorleitung!)
 
 #pragma once
 #include "esphome.h"
