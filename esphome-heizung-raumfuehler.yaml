@@ -4,22 +4,22 @@
 # 
 # Hardware:
 # - MCP4162-502E/P (5kΩ Single Digital-Poti, Non-Volatile!)
-# - 200Ω Parallelwiderstand (reduziert Bereich auf ~0-192Ω)
+# - 500Ω || 220Ω Parallelwiderstand (= 152.8Ω, optimale Poti-Nutzung)
 # - 1kΩ Vorwiderstand
-# - Gesamtbereich: 1000Ω - 1192Ω (entspricht -5°C bis 40°C)
+# - Gesamtbereich: 1000Ω - 1147Ω (entspricht -5°C bis 30°C)
 #
 # MCP4162 Pinout (DIP-8):
 # - Pin 1: CS    → GPIO5
 # - Pin 2: SCK   → GPIO18
 # - Pin 3: SDI   → GPIO23
 # - Pin 4: VSS   → GND
-# - Pin 5: P0W   → Schleifer (über 200Ω parallel zu P0B)
+# - Pin 5: P0W   → Schleifer (über 500Ω||220Ω parallel zu P0B)
 # - Pin 6: P0B   → Klemme M (Heizung)
 # - Pin 7: SDO   → nicht verwendet
-# - Pin 8: VDD   → 3.3V
+# - Pin 8: VDD   → 5V (WICHTIG: nicht 3.3V, da Heizung 5V auf Sensorleitung hat!)
 #
 # Vorteil MCP4162: Behält Widerstandswert bei Stromausfall!
-# Auflösung: ~0,6°C pro Wiper-Stufe im Bereich 10-30°C
+# Auflösung: ~0,1°C pro Wiper-Stufe (193 Stufen für 10-30°C)
 #
 # Inkl. 8x DS18B20 Temperatursensoren am 1-Wire Bus (GPIO0)
 # ============================================================
@@ -106,56 +106,15 @@ globals:
 # ============================================================
 # Ni1000 Kennlinie: R = 4.2 * T + 1021
 # Vorwiderstand: 1000Ω
-# Parallelwiderstand: 200Ω
+# Parallelwiderstand: 500Ω || 220Ω = 152.8Ω
 # MCP4162 Poti: 5kΩ / 257 Stufen = 19.53Ω pro Stufe
 # Non-Volatile: Wert bleibt bei Stromausfall erhalten!
 # ============================================================
 
 # ============================================================
-# MCP4162 Custom Output
+# MCP4162 wird direkt im on_value der virtuellen Raumtemperatur gesteuert
+# (template output mit set_level() clampt Werte auf 0-1, daher nicht verwendbar)
 # ============================================================
-output:
-  - platform: template
-    id: digipot_output
-    type: float
-    write_action:
-      then:
-        - lambda: |-
-            // state enthält die Temperatur in °C
-            float temp = state;
-
-            // Ni1000 Widerstand berechnen: R = 4.2 * T + 1021
-            float r_ni1000 = 4.2 * temp + 1021.0;
-
-            // Benötigter effektiver Poti-Widerstand (nach Vorwiderstand)
-            float r_eff = r_ni1000 - 1000.0;
-
-            // Begrenzen auf sinnvollen Bereich
-            if (r_eff < 10.0) r_eff = 10.0;
-            if (r_eff > 192.0) r_eff = 192.0;  // Max bei 200Ω parallel
-
-            // Parallelwiderstand-Formel umkehren:
-            // r_eff = (r_poti * 200) / (r_poti + 200)
-            // → r_poti = (r_eff * 200) / (200 - r_eff)
-            float r_parallel = 200.0;
-            float r_poti = (r_eff * r_parallel) / (r_parallel - r_eff);
-
-            // Wiper-Position berechnen (5kΩ = 256 Stufen)
-            int wiper = (int)(r_poti / 5000.0 * 256.0 + 0.5);
-
-            // Begrenzen
-            if (wiper < 0) wiper = 0;
-            if (wiper > 256) wiper = 256;
-
-            // Speichern für Diagnose
-            id(current_wiper) = wiper;
-
-            // Nur setzen wenn sich der Wert geändert hat
-            if (wiper != id(last_wiper)) {
-              mcp4162.setWiper(wiper);
-              id(last_wiper) = wiper;
-              ESP_LOGI("digipot", "Wiper geändert: %d (Temp: %.1f°C)", wiper, temp);
-            }
 
 # ============================================================
 # Sensoren
@@ -298,9 +257,8 @@ sensor:
     update_interval: 60s
 
   # ============================================================
-  # Gleitende Durchschnitte für Statuserkennung
-  # 30 Min: Glättet das Takten der Heizungspumpen
-  # 1 Std: Erkennung von Nachtabsenkung und Langzeittrends
+  # Gleitende Durchschnitte (30 Min) für Statuserkennung
+  # Glättet das Takten der Heizungspumpen
   # ============================================================
   - platform: copy
     source_id: temp_fussboden_vl
@@ -322,28 +280,6 @@ sensor:
     filters:
       - sliding_window_moving_average:
           window_size: 30
-          send_every: 1
-
-  - platform: copy
-    source_id: temp_fussboden_vl
-    name: "Temp. Ø1h Fußboden Vorlauf"
-    id: temp_fussboden_vl_avg_1h
-    unit_of_measurement: "°C"
-    accuracy_decimals: 1
-    filters:
-      - sliding_window_moving_average:
-          window_size: 60
-          send_every: 1
-
-  - platform: copy
-    source_id: temp_radiator_vl
-    name: "Temp. Ø1h Radiator Vorlauf"
-    id: temp_radiator_vl_avg_1h
-    unit_of_measurement: "°C"
-    accuracy_decimals: 1
-    filters:
-      - sliding_window_moving_average:
-          window_size: 60
           send_every: 1
 
   # ============================================================
@@ -393,15 +329,55 @@ sensor:
     on_value:
       then:
         - lambda: |-
-            // Temperatur mit Offset an Output übergeben
+            // Temperatur mit Offset
             float temp = x + id(temp_offset);
+            ESP_LOGI("digipot", "=== POTI BERECHNUNG ===");
+            ESP_LOGI("digipot", "Virtuelle Temp: %.1f°C, Offset: %.1f, Gesamt: %.1f°C", x, id(temp_offset), temp);
 
             // Begrenzen auf sinnvollen Bereich
             if (temp < -5.0) temp = -5.0;
-            if (temp > 35.0) temp = 35.0;
+            if (temp > 30.0) temp = 30.0;
 
-            // Output setzen (Temperatur direkt übergeben)
-            id(digipot_output).set_level(temp);
+            // Ni1000 Widerstand berechnen: R = 4.2 * T + 1021
+            float r_ni1000 = 4.2 * temp + 1021.0;
+            ESP_LOGI("digipot", "Ni1000 Ziel-Widerstand: %.1fΩ", r_ni1000);
+
+            // Benötigter effektiver Poti-Widerstand (nach 1kΩ Vorwiderstand)
+            float r_eff = r_ni1000 - 1000.0;
+
+            // Begrenzen auf erreichbaren Bereich mit 152.8Ω Parallelwiderstand (500Ω || 220Ω)
+            // Min: ~10Ω (Poti fast 0)
+            // Max: ~147Ω (bei 30°C, Poti bei ~3900Ω)
+            if (r_eff < 10.0) r_eff = 10.0;
+            if (r_eff > 147.0) r_eff = 147.0;
+            ESP_LOGI("digipot", "R_eff benötigt: %.1fΩ", r_eff);
+
+            // Parallelwiderstand-Formel umkehren:
+            // r_eff = (r_poti * R_par) / (r_poti + R_par)
+            // Umgestellt: r_poti = (r_eff * R_par) / (R_par - r_eff)
+            float r_parallel = 152.8;  // 500Ω || 220Ω
+            float r_poti = (r_eff * r_parallel) / (r_parallel - r_eff);
+            ESP_LOGI("digipot", "R_poti benötigt: %.1fΩ", r_poti);
+
+            // Wiper-Position berechnen
+            // MCP4162: 5kΩ bei Wiper=256, 0Ω bei Wiper=0
+            // Formel: wiper = r_poti / 5000 * 256
+            int wiper = (int)((r_poti / 5000.0) * 256.0 + 0.5);
+            
+            // Begrenzen auf gültigen Bereich
+            if (wiper < 0) wiper = 0;
+            if (wiper > 256) wiper = 256;
+            ESP_LOGI("digipot", "Wiper Position: %d", wiper);
+
+            // Speichern für Diagnose-Sensor
+            id(current_wiper) = wiper;
+
+            // Nur setzen wenn sich der Wert geändert hat (schont EEPROM)
+            if (wiper != id(last_wiper)) {
+              mcp4162.setWiper(wiper);
+              id(last_wiper) = wiper;
+              ESP_LOGW("digipot", ">>> Wiper GESETZT: %d (Temp: %.1f°C) <<<", wiper, temp);
+            }
 
   # ============================================================
   # Diagnose-Sensoren
@@ -430,7 +406,7 @@ sensor:
       float r_ni1000 = 4.2 * temp + 1021.0;
       float r_eff = r_ni1000 - 1000.0;
       if (r_eff < 10) r_eff = 10;
-      if (r_eff > 192) r_eff = 192;
+      if (r_eff > 147) r_eff = 147;
       return r_eff;
 
   - platform: template
@@ -520,34 +496,6 @@ binary_sensor:
       }
       return false;
 
-  # Nachtabsenkung Fußboden: 30min-Ø ist deutlich niedriger als 1h-Ø
-  - platform: template
-    name: "Nachtabsenkung Fußboden"
-    id: nachtabsenkung_fussboden
-    icon: "mdi:sleep"
-    lambda: |-
-      if (!isnan(id(temp_fussboden_vl_avg).state) && !isnan(id(temp_fussboden_vl_avg_1h).state)) {
-        // Wenn Fußboden inaktiv oder 30min-Ø mindestens 3K niedriger als 1h-Ø
-        bool inaktiv = id(temp_fussboden_vl_avg).state <= 25.5;
-        bool abgesenkt = (id(temp_fussboden_vl_avg_1h).state - id(temp_fussboden_vl_avg).state) >= 3.0;
-        return inaktiv && abgesenkt;
-      }
-      return false;
-
-  # Nachtabsenkung Radiator: 30min-Ø ist deutlich niedriger als 1h-Ø
-  - platform: template
-    name: "Nachtabsenkung Radiator"
-    id: nachtabsenkung_radiator
-    icon: "mdi:sleep"
-    lambda: |-
-      if (!isnan(id(temp_radiator_vl_avg).state) && !isnan(id(temp_radiator_vl_avg_1h).state)) {
-        // Wenn Radiator inaktiv oder 30min-Ø mindestens 4K niedriger als 1h-Ø
-        bool inaktiv = id(temp_radiator_vl_avg).state <= 30.0;
-        bool abgesenkt = (id(temp_radiator_vl_avg_1h).state - id(temp_radiator_vl_avg).state) >= 4.0;
-        return inaktiv && abgesenkt;
-      }
-      return false;
-
 # ============================================================
 # Steuerungselemente
 # ============================================================
@@ -582,11 +530,14 @@ number:
       - globals.set:
           id: manual_temp
           value: !lambda 'return x;'
-      - if:
-          condition:
-            lambda: 'return id(manual_mode);'
-          then:
-            - component.update: virtual_room_temp
+      # Bei Änderung: Manuellen Modus aktivieren und alles aktualisieren
+      - globals.set:
+          id: manual_mode
+          value: 'true'
+      - component.update: virtual_room_temp
+      - component.update: simulated_resistance
+      - component.update: poti_resistance_eff
+      - component.update: wiper_position
 
 # ============================================================
 # Schalter
