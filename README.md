@@ -8,7 +8,8 @@ ESP32-basierte Smart-Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (
 - **Multi-Raum-Durchschnitt**: Berechnet virtuelle Raumtemperatur aus mehreren Home Assistant Sensoren
 - **8× DS18B20 Monitoring**: Überwacht alle Heizkreise (Vorlauf/Rücklauf)
 - **Intelligente Statuserkennung**: Erkennt aktive Heizkreise mit gleitendem Durchschnitt (kein Flackern bei taktenden Pumpen)
-- **Nachtabsenkung-Erkennung**: Erkennt automatisch Absenkphasen durch Vergleich von 30min- und 1h-Durchschnitt
+- **Hohe Auflösung**: ~0,1°C pro Wiper-Stufe durch optimierte Widerstandsschaltung (500Ω || 220Ω)
+- **Non-Volatile**: MCP4162 behält Widerstandswert bei Stromausfall
 - **Betriebsmodi**: Automatik, Schnellaufheizen, Absenkbetrieb, Manuell
 
 ## 🔧 Hardware
@@ -21,7 +22,8 @@ ESP32-basierte Smart-Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (
 | Digital-Potentiometer | MCP4162-502E/P (5kΩ, DIP-8, Non-Volatile) | 2-3€ |
 | Temperatursensoren | DS18B20 (8 Stück) | 8-15€ |
 | Vorwiderstand | 1kΩ (0,25W) | 0,10€ |
-| Parallelwiderstand | 200Ω (0,25W) | 0,10€ |
+| Parallelwiderstand 1 | 500Ω (0,25W) | 0,10€ |
+| Parallelwiderstand 2 | 220Ω (0,25W) | 0,10€ |
 | Pull-up Widerstand | 4,7kΩ (für 1-Wire Bus) | 0,10€ |
 | Netzteil | 5V/1A USB | 3-6€ |
 | Gehäuse | optional | 3-8€ |
@@ -33,14 +35,16 @@ ESP32-basierte Smart-Heizungssteuerung, die einen Ni1000 Raumtemperaturfühler (
 ```
                          MCP4162-502E/P (DIP-8)
                            ┌────────────┐
-             GPIO5    CS ──┤1          8├── VDD ── 3.3V
+             GPIO5    CS ──┤1          8├── VDD ── 5V (WICHTIG: nicht 3.3V!)
                            │            │
              GPIO18  SCK ──┤2          7├── SDO   (nicht verwendet)
                            │            │
-             GPIO23  SDI ──┤3          6├── P0B ────┬─────────── Klemme M (Heizung)
-                           │            │           │200Ω (parallel)
-                     GND ──┤4          5├── P0W ────┴──── 1kΩ ── Klemme B5 (Heizung)
-                           └────────────┘         
+             GPIO23  SDI ──┤3          6├── P0B ────┬── 500Ω ──┬─────────── Klemme M (Heizung)
+                           │            │           │          │
+                     GND ──┤4          5├── P0W ────┤          ├── 1kΩ ── Klemme B5 (Heizung)
+                           └────────────┘           │          │
+                                                    └── 220Ω ──┘
+                                                    (500Ω || 220Ω = 152.8Ω parallel)
 
 DS18B20 Sensoren (alle parallel):
 
@@ -52,6 +56,10 @@ GPIO0 ───┴───────────┼── DQ    DS18B20 (×8)
 GND ─────────────────┼── GND       │
                      └─────────────┘
 ```
+
+> ⚠️ **Wichtig:** Der MCP4162 muss mit **5V** betrieben werden, da die Heizung 5V auf der Sensorleitung führt. Bei 3.3V kann der Chip blockieren und zeigt ~50kΩ statt des eingestellten Werts.
+
+> 💡 **Optimierung:** Die Parallelschaltung 500Ω || 220Ω = 152.8Ω ermöglicht **193 Wiper-Stufen** für den Bereich 10-30°C (ca. 0,1°C Auflösung).
 
 ### Pinbelegung ESP32
 
@@ -68,7 +76,7 @@ GND ─────────────────┼── GND       │
 | Heizungsklemme | Verbindung |
 |----------------|------------|
 | B5 | → 1kΩ → Parallelschaltung → MCP4162 P0W (Pin 5) |
-| M | → MCP4162 P0B (Pin 6) |
+| M | → MCP4162 P0B (Pin 6) UND ESP32 GND (gemeinsame Masse!) |
 
 ## 📁 Dateien
 
@@ -157,8 +165,6 @@ esphome run esphome-heizung-raumfuehler.yaml
 | Spreizung Fußboden/Radiator/Kamin/Wasserspeicher | Temperaturdifferenz VL-RL |
 | Temp. Ø30min Fußboden Vorlauf | Gleitender Durchschnitt (30 Min) |
 | Temp. Ø30min Radiator Vorlauf | Gleitender Durchschnitt (30 Min) |
-| Temp. Ø1h Fußboden Vorlauf | Gleitender Durchschnitt (1 Stunde) |
-| Temp. Ø1h Radiator Vorlauf | Gleitender Durchschnitt (1 Stunde) |
 | Virtuelle Raumtemperatur | Durchschnitt der HA-Sensoren |
 | Simulierter Ni1000 Widerstand | Aktueller Widerstandswert |
 
@@ -172,15 +178,13 @@ esphome run esphome-heizung-raumfuehler.yaml
 | Kreislauf Warmwasser aktiv | Vorlauf > 50°C | Wird gerade geladen |
 | Warmwasserbedarf | Vorlauf < 25°C | Speicher ist kalt |
 | Heizung aktiv | FBH ODER Radiator aktiv | |
-| Nachtabsenkung Fußboden | Ø30min ≤ 25,5°C UND Ø1h - Ø30min ≥ 3K | Erkennt Absenkphasen |
-| Nachtabsenkung Radiator | Ø30min ≤ 30°C UND Ø1h - Ø30min ≥ 4K | Erkennt Absenkphasen |
 
 ### Steuerung
 
 | Entität | Typ | Beschreibung |
 |---------|-----|--------------|
 | Temperatur Offset | Number | -6K bis +6K Korrektur |
-| Manuelle Temperatur | Number | 5°C bis 35°C |
+| Manuelle Temperatur | Number | 5°C bis 35°C (aktiviert automatisch manuellen Modus) |
 | Manueller Modus | Switch | Fixe Temperatur statt Durchschnitt |
 | Schnellaufheizen | Switch | Offset -4K (Heizung denkt es ist kälter) |
 | Absenkbetrieb | Switch | Offset +4K (Heizung denkt es ist wärmer) |
@@ -203,16 +207,28 @@ Beispiele:
 ### Widerstandsberechnung
 
 ```
-Gesamtwiderstand = Vorwiderstand + Parallelschaltung(Poti, 200Ω)
+Gesamtwiderstand = Vorwiderstand + Parallelschaltung(Poti, 500Ω || 220Ω)
 
 Mit:
 - Vorwiderstand: 1000Ω (fest)
-- Parallelwiderstand: 200Ω
+- Parallelwiderstand: 500Ω || 220Ω = 152.8Ω
 - MCP4162: 0-5000Ω (257 Stufen)
 
-Effektiver Bereich: 1000Ω - 1192Ω
-Auflösung: ~0,6°C pro Wiper-Stufe
+Effektiver Bereich: 1000Ω - 1147Ω
+Nutzbare Wiper-Stufen: 5-198 (193 Stufen für 10-30°C)
+Auflösung: ~0,1°C pro Wiper-Stufe
 ```
+
+### Wiper-Positionen nach Temperatur
+
+| Temperatur | Ni1000 Ω | R_eff | R_poti | Wiper |
+|------------|----------|-------|--------|-------|
+| 10°C | 1063Ω | 63Ω | 107Ω | 5 |
+| 15°C | 1084Ω | 84Ω | 186Ω | 10 |
+| 20°C | 1105Ω | 105Ω | 335Ω | 17 |
+| 21°C | 1109Ω | 109Ω | 380Ω | 19 |
+| 25°C | 1126Ω | 126Ω | 718Ω | 37 |
+| 30°C | 1147Ω | 147Ω | 3873Ω | 198 |
 
 ### SPI-Protokoll MCP4162
 
@@ -227,28 +243,12 @@ Auflösung: ~0,6°C pro Wiper-Stufe
 
 Die Heizungspumpen takten häufig (an/aus im Minutentakt). Um Flackern der Status-Anzeige zu vermeiden, werden **gleitende Durchschnitte** verwendet:
 
-| Durchschnitt | Zweck |
-|--------------|-------|
-| Ø30min | Statuserkennung (FBH/Radiator aktiv) |
-| Ø1h | Nachtabsenkung-Erkennung |
-
 ```yaml
 filters:
   - sliding_window_moving_average:
       window_size: 30    # 30 Messungen = 30 Minuten
       send_every: 1
 ```
-
-### Nachtabsenkung-Erkennung
-
-Die Nachtabsenkung wird erkannt durch Vergleich von 30min- und 1h-Durchschnitt:
-
-```
-Nachtabsenkung FBH = (Ø30min ≤ 25,5°C) UND (Ø1h - Ø30min ≥ 3K)
-Nachtabsenkung Radiator = (Ø30min ≤ 30°C) UND (Ø1h - Ø30min ≥ 4K)
-```
-
-Wenn die Temperatur schnell fällt (30min-Wert deutlich unter 1h-Wert), ist die Heizung in Absenkung.
 
 ### Optimierte Schreibzyklen
 
@@ -305,13 +305,11 @@ entities:
   - entity: binary_sensor.heizung_raumfuhler_kreislauf_kamin_aktiv
   - entity: binary_sensor.heizung_raumfuhler_kreislauf_warmwasser_aktiv
   - type: divider
-  - entity: binary_sensor.heizung_raumfuhler_nachtabsenkung_fussboden
-  - entity: binary_sensor.heizung_raumfuhler_nachtabsenkung_radiator
-  - type: divider
   - entity: switch.heizung_raumfuhler_schnellaufheizen
   - entity: switch.heizung_raumfuhler_absenkbetrieb
   - entity: switch.heizung_raumfuhler_manueller_modus
   - entity: number.heizung_raumfuhler_temperatur_offset
+  - entity: number.heizung_raumfuhler_manuelle_temperatur
 ```
 
 ### Beispiel-Temperatur-Graph
@@ -332,26 +330,14 @@ series:
     name: Warmwasser Vorlauf
 ```
 
-### Beispiel: Nachtabsenkung-Benachrichtigung
-
-```yaml
-automation:
-  - alias: "Benachrichtigung Nachtabsenkung aktiv"
-    trigger:
-      - platform: state
-        entity_id: binary_sensor.heizung_raumfuhler_nachtabsenkung_fussboden
-        to: "on"
-    action:
-      - service: notify.mobile_app
-        data:
-          message: "Heizung ist in Nachtabsenkung"
-```
-
 ## ⚠️ Sicherheitshinweise
 
 - Arbeiten an der Heizung nur im **spannungslosen Zustand**
+- **GND vom ESP32 und Klemme M müssen verbunden sein** (gemeinsame Masse)
+- **MCP4162 mit 5V betreiben** (nicht 3.3V), da Heizung 5V auf Sensorleitung führt
 - Original-Sicherheitsfunktionen der Heizung bleiben erhalten
 - Bei ESP32-Ausfall behält der MCP4162 den letzten Widerstandswert (Non-Volatile)
+- Temperaturbereich begrenzt auf -5°C bis 30°C
 - Keine Gewährleistung – Nutzung auf eigene Gefahr
 
 ## 📝 Lizenz
